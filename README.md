@@ -18,9 +18,14 @@ uv run ruff check .
 uv run pytest -q -s tests/test_model.py::test_one_batch_overfit
 ```
 
-The lockfile includes PyTorch, NumPy, pytest, and Ruff. CPU is the default; no
-pretrained downloads are needed. For a CUDA deployment, configure uv's appropriate
-PyTorch wheel index for that platform and regenerate the lockfile deliberately.
+The lockfile includes PyTorch, NumPy, pytest, and Ruff; no pretrained downloads
+are needed. On Windows and Linux, `pyproject.toml` pins torch to the PyTorch CUDA
+13.2 wheel index (`cu132`, which includes Blackwell `sm_120` kernels and needs an
+NVIDIA driver supporting CUDA ≥ 13.2); macOS uses the PyPI build. To target a
+different CUDA version, change the `pytorch-cu132` index URL and run `uv lock`.
+Check the install with
+`uv run python -c "import torch; print(torch.cuda.is_available())"`, then pass
+`--device cuda` to training (the CLI still defaults to CPU).
 Tests generate synthetic tensors only in temporary directories. They verify
 optimization and plumbing, not scientific predictive performance.
 
