@@ -8,9 +8,9 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from .model import ModelConfig
+from .model import FACE_KEYS, ModelConfig
 
-INPUT_KEYS = ("text_embedding", "pre_pose", "event_pose", "post_pose")
+POSE_KEYS = ("pre_pose", "event_pose", "post_pose")
 
 
 class PoseDataset(Dataset):
@@ -117,8 +117,17 @@ class PoseDataset(Dataset):
     def __getitem__(self, index: int) -> dict:
         c = self.config
         pose_shape = (c.steps, c.num_joints, c.joint_features)
-        shapes = dict.fromkeys(INPUT_KEYS[1:], pose_shape)
-        shapes.update(text_embedding=(c.text_dim,), target=(2,))
+        # The conditioning vector is CLIP text or annotations, per model variant.
+        input_keys = (c.condition_key, *POSE_KEYS, *(FACE_KEYS if c.face_dim else ()))
+        shapes = {
+            c.condition_key: (c.text_dim,),
+            **dict.fromkeys(POSE_KEYS, pose_shape),
+        }
+        if c.face_dim:  # face features plus the quality-gate mask column
+            shapes.update(dict.fromkeys(FACE_KEYS, (c.steps, c.face_dim + 1)))
+        shapes["target"] = (2,)
+        if c.objective == "votes":
+            shapes["votes"] = (2,)
         row = self.rows[index]
         with np.load(row["path"], allow_pickle=False) as sample:
             tensors = {}
@@ -132,8 +141,9 @@ class PoseDataset(Dataset):
                     raise ValueError(f"{row['path']}: {key} contains non-finite values")
                 tensors[key] = torch.from_numpy(array.copy())
         return {
-            "inputs": {key: tensors[key] for key in INPUT_KEYS},
+            "inputs": {key: tensors[key] for key in input_keys},
             "target": tensors["target"],
+            **({"votes": tensors["votes"]} if "votes" in tensors else {}),
             "participant_id": row["participant_id"],
             "recording_id": row["recording_id"],
         }

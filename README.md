@@ -79,6 +79,79 @@ Preprocess every example upstream using one documented protocol:
 The loader checks tensor structure and finite values, not the semantic correctness
 of coordinate normalization, embeddings, labels, or inferred joint identities.
 
+## Preparing the ViTPoseClean dataset
+
+`dataset/` (git-ignored) holds `ViTPoseClean/{train,test}/*_ctx.npz` pose clips,
+their `clean_qc.csv` files, and `Final_Annotation_v2.xlsx`. Each clip is
+`[5 s pre-event] + [event] + [5 s post-event]`. Convert it with:
+
+ViTPoseClean loses the child in 19% of frames, mostly through tracking/selection
+rather than detection, which empties the pre, event, or post window of 43 clips.
+`gapfill` recovers these frames from `dataset/full_video/{split}/<clip>.mp4` into
+`dataset/ViTPoseFilled` (same schema plus a `filled` mask). Starting at the nearest
+frame ViTPoseClean kept, it detects people (RT-DETR), estimates their pose
+(ViTPose-base), and accepts the person closest to the previous pose, in shoulder
+widths, trying rotated frames when nobody matches; it stops following after
+0.5 s without a match. Upstream frames are left untouched. On frames both cover,
+its poses agree with ViTPoseClean to a median 0.04 shoulder widths. It is
+resumable; `--device cuda` is much faster than the CPU default.
+
+`gapfill --reacquire` is an optional second pass, run on clips that still have
+an empty window, for gaps too long to follow into. It recognises the child by
+the colour of their clothing below the shoulders, learned against the other
+people in the clip. Clips where that colour does not tell the child apart
+(threshold above 0.7) are left alone: on review, the two clips above it had
+locked onto a different child. New frames are marked `reacquired` (with
+`seeded` start points) in each file. Spot-check them with
+`dataset/visual_checks/reacquired_check.py` before training.
+
+```bash
+uv run python -m asd_contextpose.gapfill            # ViTPoseClean -> ViTPoseFilled
+uv run python -m asd_contextpose.gapfill --reacquire --clips ...  # optional, see above
+uv run python -m asd_contextpose.prepare            # add --require-qc to drop QC failures
+uv run python -m asd_contextpose.train \
+  --train-manifest data/vitpose/train.csv --val-manifest data/vitpose/val.csv \
+  --text-dim 768 --num-joints 11 --joint-features 3 --device cuda \
+  --output checkpoints/best.pt
+```
+
+The converter deviates from the defaults above in documented ways:
+
+- It reads `dataset/ViTPoseFilled` by default (`--poses ViTPoseClean` for the
+  unfilled poses); manifests record each clip's `pose_filled_frac`.
+
+- Coordinates are the dataset's `keypoints_norm` (origin at the shoulder midpoint,
+  unit = the clip's median shoulder width), not image-relative; features are
+  `[x, y, confidence]` with confidence clipped to `[0, 1]`.
+- Gaps the upstream cleaner left unfilled stay zero with confidence zero rather
+  than being bridged. Clips with no event frames (≤ 10 s) or with a fully
+  unobserved region are excluded and listed on stdout.
+- `text_embedding` is the frozen, L2-normalised CLIP ViT-L/14 text embedding
+  (`openai/clip-vit-large-patch14`, `text_dim=768`) of each clip's sentence in
+  `ASD_ContextPose_Main_Event_Text_Natural.csv`; the weights download from the
+  Hugging Face Hub on first use. Manifests record the pinned model revision and the
+  sentence. Those sentences are generated from the consensus indicators, so for an
+  indicator-only baseline use `--text-encoder indicators` (`text_dim=5`, in the
+  order listed under the input contract).
+- Every NPZ also holds `context`: the four binary indicators `social_interaction`,
+  `auditory_event`, `activity_object_change`, `visual_media_event` (all zero means
+  no event), used by the annotation models below.
+- `val` holds out whole training videos (`--val-fraction`, stratified by category).
+  No participant IDs exist, so `participant_id` is the video ID; the same child
+  may appear in more than one video, so splits are video-independent only.
+  Videos `109_v_ArmFlapping_59` and `183_v_HandAction_05_0` are the same footage
+  filed under two categories; `DUPLICATE_VIDEOS` maps them to one participant
+  and recording so no split separates them.
+- Labels are confidence-weighted averages of three annotators' votes (valence:
+  positive/neutral/negative; arousal: high/low only). Every NPZ also holds
+  `votes` `[2]`, the share of known votes for positive valence and for high
+  arousal, and manifests keep each annotator's vote as `valence_votes` /
+  `arousal_votes` (`1|0|` style; empty = unknown).
+- `needs_review` comes from `Final_detailed` (the `Final` sheet omits it).
+- `--speed` adds a fourth pose feature, joint speed in shoulder widths per second,
+  measured at 25 fps and averaged over each resampling step (resampling alone
+  would scale speed by the window length).
+
 ## Manifests and leakage checks
 
 Use one CSV per split with required columns:
@@ -93,7 +166,8 @@ Paths are relative to the CSV (absolute paths also work). Split values are exact
 
 | Key | float32 shape |
 | --- | --- |
-| `text_embedding` | `[D_text]` |
+| `text_embedding` | `[D_text]` (`text_attention` model) |
+| `context` | `[4]` binary annotations (`annotation_*` models) |
 | `pre_pose`, `event_pose`, `post_pose` | each `[32,J,F]` |
 | `target` | `[2]`, ordered valence then arousal |
 
@@ -139,6 +213,64 @@ uv run python -m asd_contextpose.train \
   --output checkpoints/best.pt
 ```
 
+### Choosing a model
+
+`--model` selects how the environmental context conditions the pose branch.
+All three share the pose encoder, temporal fusion, regression head, loss and
+metrics; only the context path differs.
+
+| `--model` | Context input | Conditioning |
+| --- | --- | --- |
+| `text_attention` (default) | `text_embedding`, CLIP `[768]` | Projected text plus a region embedding queries each region's pose tokens. |
+| `annotation_attention` | `context`, binary `[4]` | Same attention, with the projected annotations as the query: `q_r = W_c c + e_r`. |
+| `annotation_film` | `context`, binary `[4]` | `[γ, β] = f_c(c)` (4 → 64 → 2×128, zero-initialised) rescales each region's pose features, `(1 + γ) ⊙ Z_r + β`; the region embedding alone then queries them. |
+
+The annotation models never read CLIP embeddings, and `--text-dim` defaults to 4
+for them:
+
+```bash
+uv run python -m asd_contextpose.train --model annotation_film \
+  --train-manifest data/vitpose/train.csv --val-manifest data/vitpose/val.csv \
+  --num-joints 11 --joint-features 3 --device cuda --output checkpoints/film.pt
+```
+
+`--model` works the same way with `crossval`. `--inputs pose` gives a pose-only
+baseline that ignores the context, and `--inputs text` a context-only one.
+
+### Face stream
+
+Pose drops the face, which is where valence mostly shows. The optional face
+stream adds frozen facial-expression features beside the pose branch:
+
+```bash
+uv run python -m asd_contextpose.face --device cuda   # -> dataset/FaceFeatures
+uv run python -m asd_contextpose.prepare --speed --face dataset/FaceFeatures   --output data/vitpose_face            # --face-features probs for the 7 classes
+uv run python -m asd_contextpose.crossval --face-dim 768 --face-dropout 0.3 ...
+```
+
+- `face` crops the child's face at each of the 32 resampling steps per region
+  (centred on the tracked face keypoints, 0.9 shoulder widths wide) and embeds it
+  with a frozen FER2013 ViT (`trpakov/vit-face-expression`): the 768-d `[CLS]`
+  and the 7 expression probabilities, with quality measures. OpenCV's YuNet face
+  detector (downloaded once to `~/.cache/asd_contextpose`) scores each step on a
+  wider crop: pose keypoints alone report eyes on lowered or hair-covered heads.
+- `prepare --face` writes `pre_face`/`event_face`/`post_face` `[32, D + 1]`: the
+  features, then a 0/1 quality gate (nose and both eyes tracked, YuNet score at
+  least 0.8 at the tracked face, crop not dark, not blurred). Failed steps are zeroed and masked; manifests record each clip's
+  `face_kept_frac`.
+- The model encodes each step (`LayerNorm → Linear(D, 32) → GELU`), averages the
+  kept steps per region, and maps the three region means to a correction added to
+  the prediction: valence only by default (`--face-targets both` for both).
+  The correction starts at zero, is zero for clips with no kept face, and
+  `--face-dropout` hides a training clip's face to keep the pose path working.
+  `--inputs face` uses the face stream alone (with `--residual-by`, on top of the
+  lookup).
+
+The FER model was trained on adult faces. On these clips it is reliable for
+"happy" on clear, frontal faces; it reads lowered or hair-covered heads as "sad"
+and talking or wide laughs as angry/surprise/fear. Check crops with
+`dataset/visual_checks/face_crops_check.py` (local only: children's faces).
+
 Training uses AdamW and the sum of per-target MSEs. Early stopping selects the
 lowest validation mean MAE, with five consecutive non-improving epochs by default.
 Seeds and deterministic Torch operations support reproducibility on the same
@@ -163,6 +295,99 @@ uv run python -m asd_contextpose.train \
 
 Standalone evaluation reloads dimensions and rejects groups used for training or
 validation. Do not tune on the test set. No real training dataset is included.
+
+With few participants, a single validation split is too noisy to compare
+settings. `crossval` runs participant-grouped k-fold cross-validation over the
+train and val manifests (never test). Each fold is evaluated once, by a model
+early-stopped on a different fold. It reports pooled out-of-fold metrics against
+an always-predict-the-training-median baseline, with a participant-bootstrap
+95% interval for the difference. Other options are forwarded to `train`:
+
+```bash
+uv run python -m asd_contextpose.crossval \
+  --manifests data/vitpose/train.csv data/vitpose/val.csv --folds 5 \
+  --text-dim 768 --num-joints 11 --joint-features 3 --device cuda \
+  --output checkpoints/cv            # writes checkpoints/cv/cv_report.json
+```
+
+### Annotator votes and binary calls
+
+Annotators agree only moderately (Fleiss' kappa about 0.33 for both targets),
+and the weighted consensus splits identical vote patterns across class
+boundaries: a "neutral" arousal label only arises from disagreement. Two
+binary calls follow the votes instead: positive vs not-positive valence and
+high vs low arousal, by annotator majority (ties left out).
+
+`--objective votes` trains on the vote shares directly: the two outputs become
+log-odds of an annotator voting positive valence / high arousal, the loss is
+cross-entropy against the shares, early stopping uses validation cross-entropy,
+and `--residual-by` starts from the log-odds of each group's mean share.
+
+When the manifests carry votes, `crossval` reports both calls for any model in
+`cv_report.json` under `classification`: AUC, accuracy and balanced accuracy,
+with the decision threshold chosen per fold on the clips the model was fitted
+and selected on. Each is compared with always predicting the majority class, a
+lookup of the mean vote share per `--baseline-by` value, and the annotators
+themselves (each against the other two where those agree). Prefer balanced
+accuracy and AUC: the classes are unbalanced (most clips are positive valence
+and low arousal), so plain accuracy rewards always predicting the majority.
+
+## Recommended model (V3)
+
+Frozen after cross-validation: context + face, trained on annotator votes.
+Valence is read mostly from the face and arousal mostly from the event context;
+pose did not help.
+
+```bash
+uv run python -m asd_contextpose.face --device cuda   # FER embeddings, YuNet scores
+uv run python -m asd_contextpose.prepare --speed --face dataset/FaceFeatures \
+  --output data/vitpose_face_det
+V3="--num-joints 11 --joint-features 4 --epochs 60 --patience 10 \
+  --model annotation_attention --lr 3e-4 --width 64 --dropout 0.3 \
+  --head-dropout 0.3 --weight-decay 0.05 --augment --objective votes \
+  --face-dim 768 --face-dropout 0.3 --inputs face --face-targets both \
+  --residual-by event_text"
+for seed in 1 2 3 4 5; do                               # final 5-seed ensemble
+  uv run python -m asd_contextpose.train --device cuda --seed $seed --text-dim 4 \
+    --train-manifest data/vitpose_face_det/train.csv \
+    --val-manifest data/vitpose_face_det/val.csv $V3 \
+    --output checkpoints/final_v3/seed$seed.pt
+done
+```
+
+Each checkpoint stores its binary-call rules (`classification`): decision
+thresholds fitted on its own training and validation clips. `--evaluate` takes
+several checkpoints as an ensemble (mean score for AUC, majority of the
+members' calls) and, on clips with annotator votes, reports both calls against
+always predicting the majority, the event-context lookup, and the annotators:
+
+```bash
+uv run python -m asd_contextpose.train --evaluate checkpoints/final_v3/seed*.pt \
+  --test-manifest <new labelled clips>.csv --output checkpoints/final_v3/new.json
+```
+
+Cross-validated results (153 development clips, 5 participant-grouped folds,
+5-seed ensemble, participant-bootstrap 95% intervals):
+
+| Binary call | Predictor | Accuracy | Balanced accuracy | AUC |
+| --- | --- | --- | --- | --- |
+| Valence: positive vs not (100 of 150 positive) | Annotators (each vs the other two) | 79% | 79% | - |
+| | Always majority | 67% | 50% | 0.50 |
+| | Event-context lookup | 55% | 53% | 0.55 |
+| | **V3** | 67% | **65%** [53, 75] | **0.71** [0.56, 0.83] |
+| Arousal: high vs low (33 of 148 high) | Annotators (each vs the other two) | 81% | 77% | - |
+| | Always majority | 78% | 50% | 0.50 |
+| | Event-context lookup | 60% | 68% | 0.63 |
+| | **V3** | 68% | **69%** [57, 79] | **0.73** [0.62, 0.85] |
+
+V3 is well above chance on both calls, but its gain over the lookup is not
+significant (balanced accuracy +12% [-3, +25] for valence, +1% [-9, +9] for
+arousal), it was the best of six configurations compared, and plain accuracy
+does not beat always predicting the majority. Confirm it on new labelled
+clips: the test split has already been used once, for an earlier pose
+candidate. Face embeddings partly encode identity and groups are videos, so
+the same child may appear in several folds; participant IDs would rule out
+identity leakage.
 
 ## Interpretation and scope
 
