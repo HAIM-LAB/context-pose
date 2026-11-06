@@ -245,7 +245,8 @@ def main(argv: list[str] | None = None) -> None:
         "--model",
         choices=MODELS,
         default="text_attention",
-        help="context: CLIP text attention, or annotation FiLM/attention",
+        help="context: CLIP text attention, or annotation FiLM/attention; "
+        "*_gru / *_bilstm: recurrent baselines (text_* or annotation_* context)",
     )
     parser.add_argument("--text-dim", type=int)
     parser.add_argument("--num-joints", type=int)
@@ -352,7 +353,7 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("training requires --train-manifest and --val-manifest")
     if args.output == args.output.with_suffix(".metrics.json"):
         parser.error("checkpoint output must not use the .metrics.json suffix")
-    if args.text_dim is None and args.model != "text_attention":
+    if args.text_dim is None and not args.model.startswith("text_"):
         args.text_dim = CONTEXT_DIM
     if any(
         value is None for value in (args.text_dim, args.num_joints, args.joint_features)

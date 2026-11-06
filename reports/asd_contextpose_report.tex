@@ -1,0 +1,757 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=2.3cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,calc}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+
+\setlist{itemsep=2pt,topsep=4pt}
+\captionsetup{font=small,labelfont=bf}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\best}[1]{\textbf{#1}}
+\newcommand{\ci}[2]{\,[#1,\,#2]}
+
+\tikzset{
+  box/.style={draw,rounded corners=2pt,align=center,font=\footnotesize,minimum height=7mm,inner sep=3pt,fill=white},
+  inp/.style={box,fill=blue!6},
+  op/.style={box,fill=gray!8},
+  out/.style={box,fill=green!8},
+  arr/.style={-{Stealth[length=2mm]},thick},
+}
+
+\title{ASD-ContextPose: Predicting Valence and Arousal from Environmental Context,\\Pose, Face and Scene Features\\[4pt]\large Progress report: data, architectures and results to date}
+\author{ASD-ContextPose project}
+\date{6 November 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We study whether the valence and arousal that annotators assign to short video clips of autistic children can be predicted from the environmental event (what happened), the child's movement (pose), the child's face, and whole-scene representations. Starting from a pose-based, context-conditioned attention model, we audited and repaired the pose data, built a participant-grouped cross-validation protocol, and compared transformer, FiLM, recurrent (GRU/BiLSTM) and linear models over context, pose, speed, facial-expression, EmotionCLIP and VLM-description features. The main findings are: (i) a simple lookup of the label per event-annotation combination is a strong baseline that no regression network beat; (ii) three-class accuracy is uninformative because annotator agreement is moderate (Fleiss' $\kappa \approx 0.33$) and the classes are unbalanced, so we moved to binary calls defined by annotator majority, trained on annotator vote shares; (iii) under this protocol the best valence model (\emph{V3}: event-context lookup plus a facial-expression correction) reaches 65\% balanced accuracy (AUC 0.71) against an annotator ceiling of 79\%, and the best arousal network (VLM scene-description embedding) reaches 72\% balanced accuracy (AUC 0.77) against a ceiling of 77\%; (iv) pose, with or without real-time speed, never improved on the context lookup, and a movement signal found in cross-validation failed on the held-out test set. All gains over the lookup have confidence intervals that include zero, the test split has been used once, and every candidate still needs confirmation on new labelled clips.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%=====================================================================
+\section{Overview}
+%=====================================================================
+
+\paragraph{Task.} Each clip shows one child around an environmental event and is split into a 5\,s pre-event window, the event itself, and a 5\,s post-event window. Three annotators rated the child's valence (positive / neutral / negative) and arousal (high / low), and the four context indicators (social interaction, auditory event, activity or object change, visual or media event). The goal is to predict valence and arousal from what can be observed: the event context and the child.
+
+\paragraph{Work done, in order.}
+\begin{enumerate}
+  \item Data audit, conversion to the model format, and recovery of missing child poses from the source videos (Section~\ref{sec:data}).
+  \item An evaluation protocol: participant-grouped 5-fold cross-validation, a context lookup baseline, and bootstrap intervals (Section~\ref{sec:eval}).
+  \item Regression experiments with the original \code{text\_attention} architecture, two annotation-conditioned variants, regularisation, residual learning on the lookup, L1 loss, a real-time speed channel and linear probes; one held-out test evaluation (Section~\ref{sec:regression}).
+  \item Frozen face, audio and video features; a gated face stream inside the network (Section~\ref{sec:face}).
+  \item An analysis of why no model beat majority-class accuracy, leading to annotator-vote targets and binary calls (Section~\ref{sec:votes}).
+  \item The V3 candidate; EmotionCLIP, VLM scene-description and second ViT face features; pose revisited; GRU and BiLSTM baselines (Sections~\ref{sec:v3}--\ref{sec:baselines}).
+\end{enumerate}
+
+\paragraph{Headline results.} Table~\ref{tab:headline} lists the best cross-validated result for each target. Section~\ref{sec:limits} lists the caveats that apply to all of them.
+
+\begin{table}[h]
+\centering
+\caption{Best cross-validated results on the binary calls (153 development clips, 5 participant-grouped folds, 5-seed ensembles, 95\% participant-bootstrap intervals).}
+\label{tab:headline}
+\begin{tabular}{llccc}
+\toprule
+Call & Predictor & Accuracy & Balanced accuracy & AUC \\
+\midrule
+\multirow{4}{*}{\shortstack[l]{Valence:\\positive vs not}}
+ & Annotators (each vs the other two) & 79\% & 79\% & -- \\
+ & Always majority & 67\% & 50\% & 0.50 \\
+ & Event-context lookup & 55\% & 53\% & 0.55 \\
+ & \best{V3} (context lookup + face) & 67\% & \best{65\%}\ci{53}{75} & \best{0.71}\ci{0.56}{0.83} \\
+\midrule
+\multirow{5}{*}{\shortstack[l]{Arousal:\\high vs low}}
+ & Annotators (each vs the other two) & 81\% & 77\% & -- \\
+ & Always majority & 78\% & 50\% & 0.50 \\
+ & Event-context lookup & 60\% & 68\% & 0.63 \\
+ & V3 & 68\% & 69\%\ci{57}{79} & 0.73\ci{0.62}{0.85} \\
+ & \best{VLM description embedding} & 79\% & \best{72\%}\ci{63}{85} & \best{0.77}\ci{0.66}{0.87} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=====================================================================
+\section{Data}\label{sec:data}
+%=====================================================================
+
+\subsection{Source data and audit}
+The dataset has 192 context clips (159 train, 33 test) from 92 source videos (71 train, 21 test), in four behaviour categories (ArmFlapping, HandAction, HeadBanging, Spinning). Clips are 10--62\,s long (median 22\,s). Poses come from an upstream ViTPose pipeline (\code{ViTPoseClean}): 11 upper-body COCO joints (nose, eyes, ears, shoulders, elbows, wrists) at 25\,fps, with coordinates centred on the shoulder midpoint and scaled by the clip's median shoulder width.
+
+The audit found the sources internally consistent:
+\begin{itemize}
+  \item Clip names, splits and categories agree across the pose files, QC tables and the annotation workbook.
+  \item No video crosses the train/test split.
+  \item Context labels equal the annotators' majority vote, and valence/arousal equal the workbook's confidence-weighted consensus formula.
+  \item The natural-language event sentences match the indicators exactly. They are generated from the four indicators, so there are only 10 distinct sentences in the whole dataset (9 among the development clips).
+\end{itemize}
+
+It also found four problems:
+\begin{itemize}
+  \item 62 clips (32\%) fail the pose cleaner's own QC.
+  \item The \code{needs\_review} flag exists only in the \code{Final\_detailed} sheet (3 clips).
+  \item There are no participant IDs, so groups are videos and the same child may appear in several videos.
+  \item Videos \code{109\_v\_ArmFlapping\_59} and \code{183\_v\_HandAction\_05\_0} are the same footage filed under two categories. They are now merged into one participant and recording (\code{DUPLICATE\_VIDEOS}).
+\end{itemize}
+
+\subsection{Recovering missing poses (gap filling)}
+In \code{ViTPoseClean} the child has no pose in 19\% of frames, which leaves at least one of the three windows empty in 43 clips (22\%). The losses fall unevenly across categories (HeadBanging 50\%, Spinning 37\%, ArmFlapping 12\%, HandAction 0\%), so dropping those clips would bias the data. Visual review showed that most empty windows were tracking failures rather than detection failures: the child was visible.
+
+\code{gapfill} recovers frames from the source videos:
+\begin{itemize}
+  \item \textbf{Detection and pose:} RT-DETR person detection plus ViTPose-base, stepping outward from the nearest tracked frame.
+  \item \textbf{Matching:} it accepts the person closest to the previous pose (in shoulder widths) and tries rotated frames when nobody matches.
+  \item \textbf{Stopping:} it stops after 0.5\,s without a match.
+\end{itemize}
+On frames both pipelines cover, its poses agree with the upstream ones to a median of 0.04 shoulder widths.
+
+A second pass (\code{--reacquire}) re-finds the child after long gaps by the colour of their clothing below the shoulders, learned against the other people in the clip. It skips clips whose colour threshold exceeds 0.7: the two clips above that threshold had locked onto a different child.
+
+\begin{table}[h]
+\centering
+\caption{Missing pose before and after gap filling (all 192 clips).}
+\begin{tabular}{lccc}
+\toprule
+Stage & Frames without pose & Clips with an empty window & Usable clips \\
+\midrule
+\code{ViTPoseClean} & 21{,}026 (19\%) & 43 (22.4\%) & 148 \\
+Gap fill, pass 1 & 10{,}815 (10\%) & 9 (4.7\%) & 182 \\
+Pass 2 (re-acquisition) & -- & 6 (3.1\%) & \best{185} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Seven clips remain excluded:
+\begin{itemize}
+  \item Four have a window that cannot be recovered: the child is absent or not separable by clothing colour.
+  \item Two need a human decision on which child is the subject.
+  \item One is exactly 10\,s long, which leaves no event frames.
+\end{itemize}
+
+\subsection{Model inputs}
+Each clip becomes an NPZ with the following arrays:
+\begin{itemize}
+  \item \textbf{Pose:} \code{pre\_pose}, \code{event\_pose}, \code{post\_pose}, each $[32, 11, F]$. Each window is linearly resampled to 32 steps with features $[x, y, \text{confidence}]$. \code{--speed} adds a fourth feature: joint speed in shoulder widths per second, measured at 25\,fps, capped at 20 (tracking jumps), and averaged over each resampling bin so it keeps real-time units whatever the window length.
+  \item \textbf{Context:} \code{context}, the four binary indicators ($[4]$; all zero means no event), and \code{text\_embedding}, the frozen L2-normalised CLIP ViT-L/14 embedding of the event sentence ($[768]$).
+  \item \textbf{Face (optional):} \code{pre\_face}, \code{event\_face}, \code{post\_face}, each $[32, D{+}1]$: per-step face features followed by a 0/1 quality-gate mask (Section~\ref{sec:face}).
+  \item \textbf{Labels:} \code{target} (consensus valence and arousal in $[-1,1]$) and \code{votes} (the share of known annotator votes for positive valence and for high arousal).
+\end{itemize}
+
+\subsection{Splits}
+The validation split holds out whole training videos, stratified by category. The prepared data has 123 train, 31 validation and 31 test clips. The development set (train + validation) has 154 clips from 68 videos; 153 are usable after removing one \code{needs\_review} clip. The test set has 29 usable clips from 20 videos.
+
+\subsection{Labels and annotator agreement}
+Each consensus label is a confidence-weighted mean of three annotators' votes. Valence votes are positive / neutral / negative (coded 1 / 0.5 / 0). Arousal votes are high / low only.
+
+Agreement is moderate:
+\begin{itemize}
+  \item Fleiss' $\kappa$ is 0.34 for valence and 0.33 for arousal.
+  \item All three annotators agree on 52\% of clips for valence and 60\% for arousal.
+  \item One annotator matches the other two (where those two agree) on 77\% of clips for valence and 82\% for arousal, against 74\% and 80\% for always guessing the majority class.
+\end{itemize}
+
+The labels are also unbalanced. Most clips are positive valence and low arousal; only 7 development clips are negative valence.
+
+%=====================================================================
+\section{Evaluation protocol}\label{sec:eval}
+%=====================================================================
+
+\paragraph{Cross-validation.} A single 18--31-clip validation split is too noisy to compare models: one clip moves validation MAE by about 5\%. All model comparisons therefore use participant-grouped 5-fold cross-validation over the 153 development clips:
+\begin{itemize}
+  \item Videos are dealt to folds round-robin within each category, with duplicate videos merged.
+  \item Each fold is predicted once, by a model trained on three folds and early-stopped on the fourth, so no clip is scored by a model selected on it.
+  \item Network results average 5 training seeds.
+\end{itemize}
+
+\paragraph{Reference predictors.}
+\begin{itemize}
+  \item \textbf{Overall median / always majority:} ignores the inputs.
+  \item \textbf{Context lookup:} for each of the 9 indicator combinations that occur, the training clips' median label (regression) or mean vote share (votes); combinations with fewer than 3 training clips use the overall value. It is rebuilt in every fold from that fold's training clips. Table~\ref{tab:lookup} shows the full-development-set version.
+  \item \textbf{Annotator ceiling:} each annotator scored against the other two, on clips where those two agree.
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\caption{The context lookup (median consensus labels), fitted on all 153 development clips.}
+\label{tab:lookup}
+\begin{tabular}{ccccrrr}
+\toprule
+Social & Auditory & Object change & Visual/media & Clips & Valence & Arousal \\
+\midrule
+ & \checkmark & & & 57 & $+0.69$ & $-0.38$ \\
+ & \checkmark & & \checkmark & 25 & $0.00$ & $-1.00$ \\
+\checkmark & \checkmark & & & 18 & $+0.70$ & $-0.41$ \\
+\checkmark & \checkmark & \checkmark & & 15 & $+1.00$ & $-0.43$ \\
+\checkmark & \checkmark & & \checkmark & 11 & $+1.00$ & $-0.45$ \\
+\checkmark & & & & 11 & $+0.67$ & $-1.00$ \\
+ & & & & 10 & $0.00$ & $-1.00$ \\
+ & \checkmark & \checkmark & & 4 & $+0.82$ & $-0.15$ \\
+ & \checkmark & \checkmark & \checkmark & 2 & \multicolumn{2}{c}{overall: $+0.69$ / $-0.64$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Metrics, phase 1 (regression).} We report MAE and CCC per target and the mean MAE over the two targets. The bootstrap interval for the gain over a baseline resamples participants (2000 draws).
+
+\paragraph{Metrics, phase 2 (binary calls).} We report AUC, balanced accuracy and plain accuracy for two calls defined by annotator majority, leaving out ties:
+\begin{itemize}
+  \item valence: positive vs not positive (150 clips, 100 positive);
+  \item arousal: high vs low (148 clips, 33 high).
+\end{itemize}
+Decision thresholds maximise balanced accuracy on the clips each model was fitted and early-stopped on, never on the scored fold. A 5-seed ensemble takes the majority of the seeds' calls, and the mean of their scores for AUC.
+
+\paragraph{Fold arrangements.} The phase 1 results (Sections~\ref{sec:regression} and~\ref{sec:face}) use the original folds, in which the duplicate videos fell into different folds; the exception is the deduplicated face-only comparison. The phase 2 results (Sections~\ref{sec:votes}--\ref{sec:baselines}) use deduplicated folds. Numbers are therefore comparable within a phase, not across phases.
+
+\paragraph{Held-out test.} The test split was used exactly once, for a candidate fixed in advance (Section~\ref{sec:regression}). Every later candidate is judged on cross-validation only and needs new labelled clips to confirm it.
+
+%=====================================================================
+\section{Architectures}\label{sec:arch}
+%=====================================================================
+
+All networks predict two unconstrained outputs $\hat{y} \in \mathbb{R}^2$ (valence, arousal) and share the same data loader, training loop, objectives and evaluation. Let $P_r \in \mathbb{R}^{32 \times J \times F}$ be the pose of window $r \in \{\text{pre}, \text{event}, \text{post}\}$, $c$ the context vector, and $W$ the model width.
+
+\subsection{ContextPose: context-queried temporal attention}
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[node distance=5mm and 6mm]
+  \node[inp] (ctx) {context $c$\\{\scriptsize indicators [4] / CLIP [768] / VLM [384]}};
+  \node[op, right=of ctx] (proj) {$W_c c$};
+  \node[op, right=of proj] (query) {query\\$q_r = W_c c + e_r$};
+  \node[inp, below=10mm of ctx] (pose) {pose $P_r$\\{\scriptsize $[32 \times 11 \times F]$, $r \in$ pre, event, post}};
+  \node[op, right=of pose] (tcn) {TCN\\{\scriptsize 2$\times$Conv1d $k{=}3$ + GELU}};
+  \node[op, right=of tcn] (att) {cross-attention\\{\scriptsize 4 heads}};
+  \node[op, right=of att] (tr) {Transformer layer\\{\scriptsize over 3 regions, mean}};
+  \node[op, right=of tr] (head) {MLP head\\{\scriptsize $W \to W/2 \to 2$}};
+  \node[out, right=of head] (sum) {$\hat{y} = \text{head} + \Delta_{\text{face}} + b_{g}$};
+  \node[inp, below=10mm of pose] (face) {face $x_{r,t}$, mask $m_{r,t}$\\{\scriptsize $[32 \times (D{+}1)]$}};
+  \node[op, right=of face] (fenc) {LN $\to$ Linear$(D,32)$\\$\to$ GELU};
+  \node[op, right=of fenc] (pool) {masked mean\\per region};
+  \node[op, right=of pool] (fhead) {face head\\{\scriptsize zero-init}};
+  \draw[arr] (ctx) -- (proj);
+  \draw[arr] (proj) -- (query);
+  \draw[arr] (query) -- (att);
+  \draw[arr] (pose) -- (tcn);
+  \draw[arr] (tcn) -- node[above,font=\scriptsize]{$Z_r$} (att);
+  \draw[arr] (att) -- node[above,font=\scriptsize]{$s_r$} (tr);
+  \draw[arr] (tr) -- (head);
+  \draw[arr] (head) -- (sum);
+  \draw[arr] (face) -- (fenc);
+  \draw[arr] (fenc) -- (pool);
+  \draw[arr] (pool) -- (fhead);
+  \draw[arr] (fhead) -| node[pos=0.25,below,font=\scriptsize]{$\Delta_{\text{face}}$} (sum);
+\end{tikzpicture}%
+}
+\caption{ContextPose with the optional face stream. $b_g$ is the residual offset from the context lookup when \code{--residual-by} is set. With \code{--inputs face} the pose and context paths are skipped and $\hat{y} = \Delta_{\text{face}} + b_g$; with \code{--inputs text}, $\hat{y} = \text{head}(W_c c) + \Delta_{\text{face}} + b_g$.}
+\label{fig:contextpose}
+\end{figure}
+
+The original model (Figure~\ref{fig:contextpose}) shares a two-layer temporal convolution across the three windows:
+\begin{align}
+Z_r &= \mathrm{TCN}(P_r) \in \mathbb{R}^{32 \times W}, &
+q_r &= W_c c + e_r, &
+s_r &= \mathrm{MHA}(q_r, Z_r, Z_r),\\
+h &= \tfrac{1}{3}\textstyle\sum_r \mathrm{Transformer}([s_{\text{pre}}, s_{\text{event}}, s_{\text{post}}])_r, &
+\hat{y} &= \mathrm{MLP}(h),
+\end{align}
+where $e_r$ are learned region embeddings. There are three conditioning variants:
+\begin{itemize}
+  \item \code{text\_attention}: $c$ is the CLIP text embedding (768-d), or the VLM embedding (384-d) in Section~\ref{sec:vlm}.
+  \item \code{annotation\_attention}: the same model with $c$ the four binary indicators.
+  \item \code{annotation\_film}: $[\gamma, \beta] = f_c(c)$ (4 $\to$ 64 $\to$ $2W$, zero-initialised) modulates the pose features, $Z'_r = (1+\gamma) \odot Z_r + \beta$. The region embedding alone is the query, so context reaches the output only through FiLM.
+\end{itemize}
+
+\subsection{Residual learning on the lookup}
+With \code{--residual-by event\_text} the network predicts a correction to the context lookup of its training folds: $\hat{y} = f(x) + b_{g(x)}$. Here $b_g$ is the group median (regression) or the log-odds of the group's mean vote share (votes objective). This lets the network start from the strongest baseline instead of re-learning it.
+
+\subsection{Face stream}
+The face stream sits beside the pose branch (Figure~\ref{fig:contextpose}):
+\begin{align}
+u_{r,t} &= \mathrm{GELU}(W_f\, \mathrm{LN}(x_{r,t})) \in \mathbb{R}^{32}, &
+\bar{u}_r &= \frac{\sum_t m_{r,t} u_{r,t}}{\max(1, \sum_t m_{r,t})}, &
+\Delta_{\text{face}} &= g([\bar{u}_{\text{pre}}; \bar{u}_{\text{event}}; \bar{u}_{\text{post}}]).
+\end{align}
+\begin{itemize}
+  \item The last layer of $g$ is zero-initialised, so training starts from the face-free prediction.
+  \item $\Delta_{\text{face}} = 0$ for clips with no usable face.
+  \item Face dropout ($p = 0.3$) hides a training clip's whole face stream.
+  \item \code{--face-targets} sets whether the face corrects valence only or both targets.
+\end{itemize}
+
+\subsection{Objectives}
+\begin{itemize}
+  \item \textbf{Regression:} the sum of per-target MSE (or L1), with early stopping on validation mean MAE.
+  \item \textbf{Votes} (\code{--objective votes}): the outputs are log-odds $z$ of an annotator voting positive valence / high arousal, trained with binary cross-entropy against the vote shares $s$, $\mathcal{L} = -[s \log \sigma(z) + (1-s) \log(1-\sigma(z))]$. Early stopping uses validation cross-entropy. This avoids the confidence-weighted average, which splits identical vote patterns across class boundaries.
+\end{itemize}
+
+\subsection{Recurrent baselines (GRU, BiLSTM)}
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[node distance=5mm and 6mm]
+  \node[inp] (seq) {96-step sequence\\{\scriptsize pre $\|$ event $\|$ post}};
+  \node[op, right=of seq] (step) {per step: [region one-hot;\\pose $J{\cdot}F$; face$\to$32 $\cdot m$; $m$]};
+  \node[op, right=of step] (proj) {Linear $\to W$\\GELU, dropout};
+  \node[op, right=of proj] (rnn) {GRU($W$) or\\BiLSTM($W/2 \times 2$)};
+  \node[op, right=of rnn] (cat) {$[h; W_c c]$};
+  \node[out, right=of cat] (head) {MLP $2W \to W/2 \to 2$\\$+\, b_g$};
+  \node[inp, above=8mm of cat] (ctx) {context or VLM $c$};
+  \draw[arr] (seq) -- (step);
+  \draw[arr] (step) -- (proj);
+  \draw[arr] (proj) -- (rnn);
+  \draw[arr] (rnn) -- node[above,font=\scriptsize]{$h$} (cat);
+  \draw[arr] (ctx) -- (cat);
+  \draw[arr] (cat) -- (head);
+\end{tikzpicture}%
+}
+\caption{Recurrent baselines (\code{baseline\_models.py}). $h$ is the GRU's last hidden state, or the BiLSTM's last forward and first backward states. The ablation flags behave as in ContextPose: \code{text} reads the face sequence with context (no pose); \code{pose} and \code{face} zero the context.}
+\label{fig:rnn}
+\end{figure}
+
+Figure~\ref{fig:rnn} shows the GRU and BiLSTM baselines (\code{--model annotation\_gru}, \code{annotation\_bilstm}, \code{text\_gru}, \code{text\_bilstm}). They read the three windows in time order as one 96-step sequence. Unlike ContextPose they use no attention or region pooling: the recurrence must summarise the clip itself, including learning to ignore masked face steps. They use the same objectives, lookup residual and training settings.
+
+\subsection{Linear probes}
+Throughout, frozen features were also tested with linear models in the same folds:
+\begin{itemize}
+  \item \textbf{Regression:} ridge or L1 regression as a correction to the lookup.
+  \item \textbf{Binary calls:} class-balanced logistic regression on one-hot context plus PCA-reduced embeddings (8 or 16 components, fitted in-fold), with $C$ chosen on an inner fold by log-loss and the result repeated over 5 fold arrangements.
+\end{itemize}
+
+\subsection{Training settings}
+All models use AdamW and batch size 16.
+\begin{itemize}
+  \item \textbf{Default:} width 128, learning rate $10^{-3}$, 30 epochs, patience 5.
+  \item \textbf{Regularised} (used from Section~\ref{sec:regression} onward): width 64, dropout 0.3, head dropout 0.3, weight decay 0.05, learning rate $3\times10^{-4}$, and pose augmentation (rotation $\pm15^\circ$, scale 0.9--1.1, jitter $\sigma=0.02$, left/right mirror with $p = 0.5$).
+  \item \textbf{Epochs in phase 2:} up to 60 epochs with patience 10; the VLM and recurrent runs use a 150-epoch cap with the same patience.
+\end{itemize}
+
+%=====================================================================
+\section{Phase 1: regression experiments}\label{sec:regression}
+%=====================================================================
+
+\subsection{Architecture comparison}
+The first cross-validation (Table~\ref{tab:spec}) showed that no network beats the context lookup. The original model is also worse than the overall median.
+
+\begin{table}[h]
+\centering
+\caption{Regression, cross-validated (5 seeds). Lower MAE is better; CCC is concordance (higher is better).}
+\label{tab:spec}
+\begin{tabular}{llcccc}
+\toprule
+Model & Training & Mean MAE & V MAE / CCC & A MAE / CCC \\
+\midrule
+\code{text\_attention} (CLIP) & default & 0.483 & 0.400 / $-0.06$ & 0.567 / $-0.04$ \\
+\code{annotation\_attention} & default & 0.482 & 0.409 / $-0.04$ & 0.554 / $0.02$ \\
+\code{annotation\_film} & default & 0.496 & 0.421 / $-0.08$ & 0.572 / $0.03$ \\
+Pose only & default & 0.496 & 0.428 / $-0.12$ & 0.563 / $0.01$ \\
+\code{text\_attention} (CLIP) & regularised & 0.467 & 0.383 / $-0.03$ & 0.551 / $-0.01$ \\
+\code{annotation\_attention} & regularised & 0.468 & 0.383 / $-0.01$ & 0.553 / $-0.03$ \\
+\code{annotation\_film} & regularised & 0.468 & 0.389 / $0.03$ & 0.547 / $0.07$ \\
+Pose only & regularised & 0.468 & 0.384 / $-0.01$ & 0.553 / $-0.03$ \\
+\midrule
+Overall median & -- & 0.464 & 0.373 / $0.00$ & 0.555 / $-0.08$ \\
+\best{Context lookup (median per combination)} & -- & \best{0.425} & \best{0.351} / \best{0.34} & \best{0.498} / \best{0.15} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The main observations:
+\begin{itemize}
+  \item CLIP text and the four indicators perform the same. The sentences are generated from the indicators, so they carry the same 9-way information.
+  \item FiLM does not help.
+  \item Regularisation helps every model by about 0.015, but mostly by pulling predictions toward a constant.
+  \item Pose-only models match the full models, so pose adds no measurable signal.
+\end{itemize}
+
+\subsection{Residual learning, L1 loss and a real-time speed channel}
+Each window is resampled to 32 steps whatever its real length (5 to over 30\,s), so frame-to-frame change in the network input no longer reflects real speed. The \code{--speed} channel restores it. Table~\ref{tab:speed} shows the results.
+
+\begin{table}[h]
+\centering
+\caption{Residual and speed-channel networks (5-seed average predictions). The gain is the improvement in mean MAE over the lookup, with a 95\% participant bootstrap.}
+\label{tab:speed}
+\begin{tabular}{lcccc}
+\toprule
+Configuration & Mean MAE & V MAE / CCC & A MAE / CCC & Gain vs lookup \\
+\midrule
+\best{Context lookup} & \best{0.425} & 0.351 / 0.34 & 0.498 / 0.15 & -- \\
+S6: residual + speed, L1 & 0.434 & 0.359 / 0.36 & 0.510 / 0.19 & $-0.009$\ci{-0.049}{+0.028} \\
+S4: residual + speed, MSE & 0.436 & 0.362 / 0.38 & 0.511 / 0.25 & $-0.012$\ci{-0.054}{+0.033} \\
+S5: as S4, pose only & 0.436 & 0.362 / 0.38 & 0.509 / 0.25 & $-0.011$\ci{-0.054}{+0.033} \\
+Residual, no speed (MSE) & 0.451 & -- & -- & -- \\
+Residual, no speed (L1) & 0.445 & 0.373 / 0.27 & 0.517 / 0.15 & -- \\
+S2: speed + regularisation & 0.445 & 0.380 / 0.09 & 0.509 / 0.10 & $-0.020$ \\
+S1: speed, no regularisation & 0.459 & 0.411 / 0.01 & 0.507 / 0.17 & $-0.034$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item Speed lifted network arousal CCC from about 0 to 0.17, and to 0.25 with the residual. This was the first time the networks used pose at all.
+  \item The arousal gain never became a lower MAE: every network ties or loses to the lookup.
+  \item L1 loss closed only a little of the gap.
+\end{itemize}
+
+\subsection{Linear movement features and the held-out test}
+A linear probe on nine hand-crafted movement features per window (head, elbow, wrist and body speed, wrist height and spread, head bob) found an arousal signal in cross-validation:
+\begin{itemize}
+  \item Adding movement to context lowered arousal MAE from 0.507 to 0.462 and raised CCC from 0.17 to 0.32.
+  \item Wrist speed correlated with arousal at Spearman $\rho \approx 0.33$.
+\end{itemize}
+
+We fixed a candidate in advance (the lookup for valence, linear context + movement for arousal) and evaluated it once on the 29 usable test clips (Table~\ref{tab:test}). The arousal signal did not replicate. The lookup's performance carried over (valence CCC 0.31 against 0.34 in cross-validation), making it the only predictor confirmed on new videos.
+
+\begin{table}[h]
+\centering
+\caption{Held-out test set, scored once (29 clips, 20 videos; models fitted on the 153 development clips).}
+\label{tab:test}
+\begin{tabular}{lccc}
+\toprule
+Predictor & Mean MAE & V MAE / CCC & A MAE / CCC \\
+\midrule
+Candidate (lookup valence + linear movement arousal) & 0.428 & 0.361 / 0.31 & 0.495 / 0.00 \\
+\best{Context lookup} & \best{0.389} & 0.361 / 0.31 & \best{0.417} / \best{0.17} \\
+Overall median & 0.456 & 0.426 / 0.00 & 0.486 / 0.00 \\
+Linear context + movement (both targets) & 0.450 & 0.406 / 0.12 & 0.495 / 0.00 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=====================================================================
+\section{Face, audio and video features}\label{sec:face}
+%=====================================================================
+
+\subsection{Frozen-feature probe}
+Frozen embeddings for the development clips were each used as a linear (L1) correction on the lookup (Table~\ref{tab:media}):
+\begin{itemize}
+  \item face crops from the pose keypoints: FER ViT \code{trpakov/vit-face-expression} [CLS] embedding and its 7 expression probabilities;
+  \item V-JEPA 2 on a child crop;
+  \item audio: AST embeddings, and AudioSet event probabilities plus loudness.
+\end{itemize}
+Faces were the first input with a valence signal: the gain from the expression probabilities, $+0.021\ci{+0.004}{+0.040}$, was the first interval to exclude zero, though one of 16 comparisons. Whole-clip video learned nothing (the penalty switched it off in every fold), and audio did not help.
+
+\begin{table}[h]
+\centering
+\caption{Frozen media features as a linear correction on the lookup (cross-validated).}
+\label{tab:media}
+\begin{tabular}{lcccc}
+\toprule
+Input & Mean MAE & V MAE / CCC & A MAE / CCC & Gain vs lookup \\
+\midrule
+Context lookup & 0.425 & 0.351 / 0.34 & 0.498 / 0.15 & -- \\
+\best{Face, FER embedding} & \best{0.420} & \best{0.328} / \best{0.47} & 0.511 / 0.21 & $+0.005$\ci{-0.014}{+0.026} \\
+Face, 7 expression probabilities & 0.421 & 0.330 / 0.41 & 0.512 / 0.16 & $+0.004$\ci{-0.024}{+0.026} \\
+Video, V-JEPA 2 (child crop) & 0.426 & 0.351 / 0.34 & 0.501 / 0.15 & $-0.001$ \\
+Audio, AudioSet probabilities + loudness & 0.429 & 0.357 / 0.32 & 0.502 / 0.14 & $-0.005$ \\
+Audio, AST embedding & 0.437 & 0.353 / 0.34 & 0.520 / 0.15 & $-0.012$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Face pipeline and quality gate}
+\code{face.py} crops the child's face at each of the 32 steps per window. The crop is centred on the tracked face keypoints, 0.9 shoulder widths wide, and resized to 224\,px, then embedded with the frozen FER ViT (768-d [CLS]).
+
+Visual checks showed the FER model is reliable for ``happy'' on clear frontal faces. It reads lowered or hair-covered heads as ``sad'' (the top class in 48\% of clips) and dark crops as ``angry''. A step is therefore kept only if all of these hold:
+\begin{itemize}
+  \item the face is frontal (nose and both eyes tracked);
+  \item OpenCV's YuNet detector scores at least 0.8 at the tracked face (set by inspecting crops sorted by score, without labels);
+  \item the crop's brightness is at least 40 and its sharpness (Laplacian variance) at least 10.
+\end{itemize}
+The detector gate keeps 39\% of steps, and 27 development clips have no usable face.
+
+\subsection{Face stream results (regression)}
+Table~\ref{tab:face} shows the face stream inside the network.
+\begin{itemize}
+  \item With the detector gate, F3 (lookup + face, no pose) reaches the lowest mean MAE in the project, 0.411. That is still a tie with its starting lookup: $+0.011\ci{-0.011}{+0.029}$.
+  \item Every configuration with the pose network has worse arousal than the lookup alone.
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\caption{Face-stream networks, regression, against the training-fold lookup they start from (0.422 / 0.368 / 0.476). Detector-gated faces.}
+\label{tab:face}
+\begin{tabular}{lccccc}
+\toprule
+Configuration & Mean MAE & V MAE & V CCC & A MAE & Mean gain vs lookup \\
+\midrule
+F0: residual + speed, no face & 0.434 & 0.359 & 0.36 & 0.510 & $-0.012$ \\
+F1: + face $\to$ valence & 0.430 & 0.346 & 0.45 & 0.513 & $-0.008$ \\
+F2: + face $\to$ both & 0.425 & 0.347 & 0.43 & 0.503 & $-0.003$ \\
+\best{F3: lookup + face, no pose} & \best{0.411} & 0.347 & 0.44 & 0.476 & $+0.011$\ci{-0.011}{+0.029} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Face alone.} A face-only model, starting from the overall median rather than the lookup, beat the overall median with an interval excluding zero. This held after merging the duplicate videos: $+0.069\ci{+0.026}{+0.112}$ mean MAE, valence MAE 0.340 against 0.403 for the lookup. It did not significantly beat the lookup ($+0.030\ci{-0.026}{+0.085}$). Because face embeddings partly encode identity and groups are videos, part of this could be memorising children who appear in several videos.
+
+%=====================================================================
+\section{Why accuracy does not beat the majority class}\label{sec:votes}
+%=====================================================================
+
+Under the initial three-class scheme (cut at $\pm\frac{1}{3}$), every model's accuracy was at or below always predicting the majority class (73\% valence, 69\% arousal). Four causes were identified:
+
+\begin{enumerate}
+  \item \textbf{Annotator noise sets a low ceiling.} An annotator beats the majority guess by only 2--3 points (77\% vs 74\% valence, 82\% vs 80\% arousal).
+  \item \textbf{The cut points do not match the annotation scheme.}
+  \begin{itemize}
+    \item Arousal votes are only high or low, so the ``neutral arousal'' class (24 clips) is really annotator disagreement.
+    \item The valence vote pattern ``two neutral, one positive'' became neutral in 5 clips and positive in 11, depending only on confidence weights.
+    \item 16--17\% of labels lie within 0.1 of a cut point.
+  \end{itemize}
+  \item \textbf{The inputs rarely make a minority class the likelier one.}
+  \begin{itemize}
+    \item In 8 of 9 context combinations the majority class is also the most common.
+    \item The regression models' minority-class predictions were correct only 13--43\% of the time.
+    \item Thresholds tuned on the answers gained only 0--2 points.
+  \end{itemize}
+  \item \textbf{Classifiers trained for accuracy collapse to the majority.} Unweighted logistic classifiers made 0--14 minority predictions out of 153. Class-balanced classifiers found no valence signal, but arousal as a binary high/low call reached 67\%\ci{55}{79} balanced accuracy from context alone.
+\end{enumerate}
+
+\paragraph{Changes made.}
+\begin{itemize}
+  \item Labels are now the annotators' own binary calls: positive vs not-positive valence, and high vs low arousal.
+  \item Results are reported as balanced accuracy and AUC against the annotator ceiling.
+  \item Models are trained on vote shares (the votes objective).
+  \item The duplicate-video merge is permanent.
+\end{itemize}
+
+%=====================================================================
+\section{Phase 2: binary calls and the V3 candidate}\label{sec:v3}
+%=====================================================================
+
+Table~\ref{tab:v3} compares regression- and votes-trained models on the binary calls. \textbf{V3} combines \code{annotation\_attention}, \code{--inputs face}, \code{--face-targets both}, the votes objective and the lookup residual. Its prediction is therefore the context lookup's log-odds plus a face correction for both targets; the pose branch is unused.
+
+\begin{table}[h]
+\centering
+\caption{Binary calls, cross-validated (deduplicated folds, 5-seed ensembles). R = regression objective, V = votes objective.}
+\label{tab:v3}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+ & \multicolumn{3}{c}{Valence: positive vs not} & \multicolumn{3}{c}{Arousal: high vs low} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+Predictor & Acc. & Bal. acc. & AUC & Acc. & Bal. acc. & AUC \\
+\midrule
+Annotators (ceiling) & 79\% & 79\% & -- & 81\% & 77\% & -- \\
+Always majority & 67\% & 50\% & 0.50 & 78\% & 50\% & 0.50 \\
+Context lookup & 55\% & 53\% & 0.55 & 60\% & 68\% & 0.63 \\
+R: pose + context & 62\% & 60\% & 0.58 & 66\% & 63\% & 0.66 \\
+R: context + face & 67\% & 62\% & 0.60 & 74\% & 69\% & 0.66 \\
+R: face only & 59\% & 59\% & 0.70 & 64\% & 62\% & 0.67 \\
+V: pose + context & 53\% & 54\% & 0.60 & 61\% & 62\% & 0.68 \\
+\best{V3: context + face} & 67\% & \best{65\%} & 0.71 & 68\% & \best{69\%} & \best{0.73} \\
+V: face only & 60\% & 60\% & \best{0.73} & 57\% & 65\% & 0.69 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{V3 beats chance on both targets:} its balanced-accuracy intervals are \ci{53}{75} for valence and \ci{57}{79} for arousal.
+  \item \textbf{Valence comes from the face, arousal from context.} The lookup is at chance for valence (AUC 0.55), while face models reach AUC 0.70--0.73.
+  \item \textbf{The votes objective improves ranking} for the same inputs: valence AUC 0.60 $\to$ 0.71, arousal 0.66 $\to$ 0.73.
+  \item \textbf{Pose does not help.}
+  \item \textbf{V3's gains over the lookup are not significant:} $+12\%\ci{-3}{+25}$ for valence and $+1\%\ci{-9}{+9}$ for arousal.
+  \item \textbf{Plain accuracy does not beat the majority.} Thresholds are set for balanced accuracy, and 78\% of clips are low arousal.
+\end{itemize}
+
+V3 was frozen: five final checkpoints (\code{checkpoints/final\_v3}), each storing its own decision thresholds. \code{train --evaluate} now scores an ensemble of checkpoints on new labelled clips against the majority, the lookup and the annotators.
+
+%=====================================================================
+\section{EmotionCLIP}\label{sec:eclip}
+%=====================================================================
+
+EmotionCLIP (CVPR 2023; ViT-B/32 with a subject mask and a temporal transformer) was used as a frozen feature extractor:
+\begin{itemize}
+  \item \textbf{Subject mask:} the child's box from the pose joints (padded, with the torso extended), on a 224\,px crop centred on the child. Steps where the child is untracked use an empty mask.
+  \item \textbf{Embeddings:} a 512-d frame embedding at each of the 32 steps per window, and a window embedding from 8 steps.
+  \item \textbf{Coverage:} the child is tracked in 94\% of steps.
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\caption{EmotionCLIP. The linear rows average 5 fold arrangements; the network rows are 5-seed ensembles.}
+\label{tab:eclip}
+\begin{tabular}{llcc}
+\toprule
+Call & Approach & Balanced accuracy & AUC \\
+\midrule
+\multirow{4}{*}{Arousal}
+ & Context lookup & 68\% & 0.63 \\
+ & EmotionCLIP alone (linear) & -- & 0.72--0.77 \\
+ & \best{Linear: context + face + EmotionCLIP} & \best{74--75\%} (65--79\%) & \best{0.80--0.81} \\
+ & Network: context + EmotionCLIP stream & 60\%\ci{47}{75} & 0.75 \\
+\midrule
+\multirow{2}{*}{Valence}
+ & EmotionCLIP alone (linear) & 41--47\% & 0.35--0.48 \\
+ & Network: context + EmotionCLIP stream & 52\%\ci{42}{61} & 0.59 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{Arousal:} EmotionCLIP carries signal. The linear combination of context, face and EmotionCLIP is the best arousal result in the project (8--16 PCA components; 32 overfits to 68\%).
+  \item \textbf{Networks:} the network version ranks clips well but makes worse calls.
+  \item \textbf{Valence:} below chance in every setting, which suggests cues tied to particular videos that reverse on new ones.
+  \item \textbf{Licence:} the weights' licence is unstated and must be checked before publication.
+\end{itemize}
+
+%=====================================================================
+\section{VLM scene descriptions and a second face model}\label{sec:vlm}
+%=====================================================================
+
+Two new feature sets were provided:
+\begin{itemize}
+  \item \textbf{VLM embeddings:} Qwen3-Omni descriptions of 5--6\,s windows (scene, child actions, audible context), embedded with \code{all-MiniLM-L6-v2} (384-d) and averaged into one L2-normalised clip vector.
+  \item \textbf{\code{face\_features\_v3/vit}:} per-frame face features (\code{backbone\_cls}, \code{backbone}, \code{eq\_embed}, \code{eq\_hidden}, \code{contrast}) with the pipeline's own face detection. A face is found in 64\% of frames.
+\end{itemize}
+The uploaded ViT features differ from our FER embedding: their cosine similarity is 0.17 on matched frames. We used \code{backbone\_cls} at the frame nearest each pose step, masked by \code{face\_found}.
+
+\begin{table}[h]
+\centering
+\caption{VLM and uploaded-ViT models (votes objective, lookup residual, V3 settings; 5-seed ensembles). Balanced accuracy / AUC.}
+\label{tab:vlm}
+\begin{tabular}{lcc}
+\toprule
+Model & Valence & Arousal \\
+\midrule
+V3: context + our FER face & \best{65\% / 0.71} & 69\% / 0.73 \\
+F3: context + uploaded ViT face & 57\% / 0.57 & 58\% / 0.70 \\
+VLM only (60-epoch cap) & 61\% / 0.60 & 69\% / 0.75 \\
+\best{VLM only (150-epoch cap)} & 62\% / 0.60 & \best{72\% / 0.77} \\
+VLM + uploaded ViT face & 58\% / 0.56 & 66\% / 0.72 \\
+VLM + our FER face & 64\% / 0.69 & 69\% / 0.75 \\
+VLM + pose with speed & 58\% / 0.59 & 59\% / 0.67 \\
+VLM + pose with speed, VLM also fed to the head & 58\% / 0.59 & 60\% / 0.67 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{The uploaded ViT features carry almost no valence signal.} In linear probes every array scored valence AUC 0.48--0.55, with or without a detector-score gate, against 0.63--0.65 for our FER embedding.
+  \item \textbf{VLM-only is the best arousal network.} Its plain accuracy of 79\% is the first network result above always predicting low (78\%). The 150-epoch cap was chosen after seeing that 5 of 25 models were still improving at epoch 60, a mild selection on these clips.
+  \item \textbf{Adding faces to the VLM model} brings valence close to V3 but costs arousal.
+  \item \textbf{Adding pose with speed} makes arousal worse than the lookup (gain $-8\%\ci{-17}{+1}$) and overfits quickly (median kept epoch 11).
+  \item \textbf{The VLM descriptions mention visible affect} (``laughing'' in 34 clips, ``smiling'' in 29, ``crying'' in 14), so part of the VLM signal is the VLM's own reading of the child's expression.
+\end{itemize}
+
+%=====================================================================
+\section{Recurrent baselines}\label{sec:baselines}
+%=====================================================================
+
+The GRU and BiLSTM baselines (Figure~\ref{fig:rnn}) were run on five input sets with the same protocol (Table~\ref{tab:rnn}).
+
+\begin{table}[h]
+\centering
+\caption{Recurrent baselines vs the transformer models (balanced accuracy / AUC; 5-seed ensembles; same folds). The transformer face + context row is V3.}
+\label{tab:rnn}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+ & \multicolumn{3}{c}{Valence} & \multicolumn{3}{c}{Arousal} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+Inputs & Transformer & GRU & BiLSTM & Transformer & GRU & BiLSTM \\
+\midrule
+Pose + context & 54 / .60 & 57 / .59 & 57 / .57 & 62 / .68 & 62 / .64 & 60 / .62 \\
+Face + context & \best{65 / .71} & 55 / .64 & 53 / .63 & 69 / .73 & 64 / .67 & 67 / .67 \\
+Pose + face + context & -- & 60 / .61 & 60 / .63 & -- & 67 / .64 & 56 / .68 \\
+VLM + face & 64 / .69 & 61 / .65 & 60 / .64 & 69 / .75 & 64 / .69 & 68 / .74 \\
+VLM + pose & 58 / .59 & 62 / .60 & 54 / .58 & 59 / .67 & 66 / .70 & 63 / .68 \\
+VLM only & 62 / .60 & -- & -- & \best{72 / .77} & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{No recurrent model reaches the best transformer result} for either target.
+  \item \textbf{The recurrent models use the face worse} (valence 53--55\% against 65\%). V3 averages only the gated face steps and adds its correction directly to the lookup; a recurrence has to learn to ignore mostly masked steps.
+  \item \textbf{With pose, the GRU overfits less than the transformer} (VLM + pose arousal 66\% against 59\%), but it still does not beat the plain lookup (68\%).
+  \item \textbf{The BiLSTM with pose + context learned almost nothing:} its median kept epoch was 2.
+\end{itemize}
+
+%=====================================================================
+\section{Discussion and limitations}\label{sec:limits}
+%=====================================================================
+
+\paragraph{What the evidence supports.}
+\begin{enumerate}
+  \item \textbf{The environmental event is the strongest single predictor}, and the only one confirmed on held-out videos, especially for arousal.
+  \item \textbf{Facial expression carries a valence signal} that context does not: it appears in the linear probe, the regression face stream and the vote-trained models.
+  \item \textbf{Scene-level representations (EmotionCLIP, VLM descriptions) add arousal signal} beyond the event indicators.
+  \item \textbf{Upper-body pose, including real-time speed, did not help} once context was available, and its cross-validated arousal signal failed on the test set.
+  \item \textbf{With 153 clips, small linear models and lookup-plus-correction designs beat deeper networks.}
+\end{enumerate}
+
+\paragraph{Limitations.}
+\begin{itemize}
+  \item \textbf{No result is significantly better than the context lookup.} All intervals for the gain include zero.
+  \item \textbf{The best configurations were selected on the same cross-validation folds,} from many compared, so their numbers are optimistic. The test split has been used once and must not be reused for selection.
+  \item \textbf{Folds are grouped by video, not by participant.} The same child may appear in several videos. Face, EmotionCLIP and VLM features can encode identity or room, so their gains may be partly memorisation. Participant IDs would settle this.
+  \item \textbf{Annotator agreement is moderate} ($\kappa \approx 0.33$), only 7 development clips are negative valence, and only 33 are high arousal.
+  \item \textbf{The pretrained models were trained on adults} (FER2013, EmotionCLIP's vloggers), and face coverage is limited: 27 clips have no usable face.
+  \item \textbf{Licensing:} the EmotionCLIP weights have no stated licence, and \code{face\_features\_v3} is undocumented.
+  \item \textbf{Scope:} the labels are annotators' judgements of observed behaviour, not measurements of internal state, and post-event inputs mean the models characterise a completed window rather than predict ahead.
+\end{itemize}
+
+\paragraph{Recommended next steps.}
+\begin{enumerate}
+  \item \textbf{Obtain participant IDs} and regroup the folds by child.
+  \item \textbf{Collect new labelled clips} and confirm a candidate fixed in advance: V3 for valence, and the VLM-only network or the linear context + face + EmotionCLIP model for arousal. \code{train --evaluate} already supports this for networks.
+  \item \textbf{Add the VLM and EmotionCLIP extraction to the package} (not just the scratchpad), and check the EmotionCLIP weights licence.
+  \item \textbf{Prefer more annotations per clip} over more architecture work: the ceiling and the class counts, not the model, limit what can be shown.
+\end{enumerate}
+
+\appendix
+%=====================================================================
+\section{Reproduction}
+%=====================================================================
+
+\paragraph{V3 (valence candidate).}
+\begin{verbatim}
+uv run python -m asd_contextpose.face --device cuda
+uv run python -m asd_contextpose.prepare --speed --face dataset/FaceFeatures \
+  --output data/vitpose_face_det
+V3="--num-joints 11 --joint-features 4 --epochs 60 --patience 10 \
+  --model annotation_attention --lr 3e-4 --width 64 --dropout 0.3 \
+  --head-dropout 0.3 --weight-decay 0.05 --augment --objective votes \
+  --face-dim 768 --face-dropout 0.3 --inputs face --face-targets both \
+  --residual-by event_text"
+uv run python -m asd_contextpose.crossval --device cuda --seed 1 \
+  --manifests data/vitpose_face_det/train.csv data/vitpose_face_det/val.csv $V3 \
+  --output checkpoints/votes/V3_context_face/seed1
+\end{verbatim}
+
+\paragraph{VLM-only (arousal candidate).} The data copy \code{data/vitpose\_v3vlm} replaces \code{text\_embedding} with the VLM clip embedding (built by a scratchpad script, not yet a \code{prepare} option).
+\begin{verbatim}
+--model text_attention --text-dim 384 --inputs text --epochs 150 --patience 10
+  (other flags as V3, without the face flags)
+\end{verbatim}
+
+\paragraph{Recurrent baselines.}
+\begin{verbatim}
+--model annotation_gru | annotation_bilstm   (context [4])
+--model text_gru | text_bilstm --text-dim 384 (VLM embedding)
+\end{verbatim}
+
+\paragraph{Evaluating on new labelled clips.}
+\begin{verbatim}
+uv run python -m asd_contextpose.train --evaluate checkpoints/final_v3/seed*.pt \
+  --test-manifest <new clips>.csv --output checkpoints/final_v3/new.json
+\end{verbatim}
+
+\paragraph{Code map.} \code{gapfill.py} (pose recovery), \code{prepare.py} (conversion, face gate, votes), \code{face.py} (face crops, FER and YuNet), \code{model.py} (ContextPose, FiLM, face stream), \code{baseline\_models.py} (GRU, BiLSTM), \code{train.py} (objectives, residual, ensemble evaluation), \code{crossval.py} (grouped cross-validation), \code{votes.py} (annotator votes, binary calls, thresholds, bootstrap), \code{linear\_probe.py} (movement features). The EmotionCLIP extractor and the VLM/ViT data builders are scratchpad scripts and are not yet in the package.
+
+\end{document}

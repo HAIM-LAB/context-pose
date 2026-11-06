@@ -4561,3 +4561,974 @@ The best plain accuracy any model has reached under cross-validation never beats
 Plain accuracy tops out at the majority-guess level: 67% / 77% for the binary calls, 72% / 66% for three classes. That's because most clips are positive valence and low arousal, and the inputs are rarely confident enough to call the rarer class. The real gains show up in balanced accuracy and AUC. V3 reaches 65% for valence and 69% for arousal (chance is 50%), against an annotator ceiling of 79% and 77%.
 
 ---
+
+
+**User**
+
+report the best accuracy we've gotten for arousal and valence with cross validation
+
+---
+
+
+**Claude**
+
+Every number in my previous answer was already cross-validated: out-of-fold predictions on 153 development clips, 5 participant-grouped folds. These are the best results per target:
+
+| | Best accuracy | Always guessing the majority | Best balanced accuracy (chance 50%) |
+|---|---:|---:|---:|
+| **Valence** (positive vs not) | **67%** (V3) | 67% | **65%** (V3) |
+| **Arousal** (high vs low) | **77%** (event-context classifier) | 78% | **69%** (V3) |
+
+With the earlier three-class split (negative / neutral / positive), the best accuracy was 72% for valence and 66% for arousal, against 73% and 69% for always guessing the majority.
+
+On plain accuracy, no model has beaten always guessing the most common answer. On balanced accuracy, V3 clearly beats chance for both targets.
+
+---
+
+
+**User**
+
+remove the majority guess from the table and report only model accuracy
+
+---
+
+
+**Claude**
+
+Best cross-validated model accuracy (153 development clips, 5 participant-grouped folds):
+
+| | Accuracy | Balanced accuracy |
+|---|---:|---:|
+| **Valence** (positive vs not) | **67%** (V3) | **65%** (V3) |
+| **Arousal** (high vs low) | **77%** (event-context classifier) | **69%** (V3) |
+
+---
+
+
+**User**
+
+do you think we can adapt the emotionclip model (https://github.com/xeaver/emotionclip) for our work. like finetuning as a downstream task
+
+---
+
+
+**Claude**
+
+EmotionCLIP could fit well here. Before recommending how, I'll check what the repo provides: released weights, required inputs, licence, and how the authors evaluate on downstream tasks.
+
+---
+
+
+**Claude**
+
+Yes, I think it's worth trying, but as a frozen feature extractor first, not by fine-tuning it.
+
+**What EmotionCLIP is.** From the repo: a CVPR 2023 model ("Learning Emotion Representations from Verbal and Nonverbal Communication") that starts from OpenCLIP's ViT-B/32. It was trained on YouTube videos with their transcripts, using person boxes from a YOLOv7 detector. The pretrained weights are on Google Drive. The code is MIT-licensed, but no licence is stated for the weights. The repo's own downstream test is a linear probe (`linear_eval.py`), not fine-tuning.
+
+The repo doesn't give the input details, so these come from my memory of the paper and need checking in `src/models/base.py`:
+- it takes a short clip of frames;
+- a "subject-aware" mask focuses it on one person;
+- it's built to read emotion from that person's body and face together, plus the scene.
+
+**Why it fits our problem**
+1. **It reads emotion from the whole person**, not just the face. Our biggest limit is face coverage: 27 clips have no usable face, and many children turn away or look down. Body language could cover those clips.
+2. **We can supply the "subject" input cheaply.** The pose tracks already locate the child in every frame, so a box or mask per frame is easy to derive.
+3. **It's trained for emotion,** unlike V-JEPA, which learned nothing for us. That earlier result shows general video features aren't enough; emotion-specific training might be.
+
+**Why not fine-tune it outright**
+- **Too little data.** We have about 150 clips from about 60 videos, and ViT-B/32 has roughly 90 million parameters. Our own small networks (about 100k parameters) already overfit, so full fine-tuning would memorise the clips.
+- **Fine-tuning only comes later**, and only if the frozen features show signal: adapt just the last block or small adapters (LoRA), with nested cross-validation.
+
+**Risks**
+- **Domain gap:** it was trained on adult vloggers, while these are children with ASD, whose expressions and movements can be atypical. The face model had the same problem.
+- **Identity:** whole-person embeddings may encode identity even more strongly than face embeddings, and the same child may appear in several videos.
+- **Weights licence:** not stated, so it should be checked before any publication.
+- **Unverified input format:** the frame count, resolution and mask format need confirming in the code.
+
+**Plan**
+
+| Step | What | Time |
+|---|---|---|
+| 1 | Download the weights; read `base.py` for the exact inputs (frames, resolution, mask format) | 30 min |
+| 2 | Extract embeddings at each of the 32 time steps per window, with the child's box from the pose tracks (GPU, run in isolation via `uv run --with`, so the project's dependencies don't change) | 30–40 min |
+| 3 | Linear probe in our cross-validation, for both binary calls, against V3 and face-only | 10 min |
+| 4 | If it shows signal: feed it into the existing face-stream slot (a per-step embedding, so mostly reused code), alone and alongside faces, 5 seeds each | 30 min |
+
+That's about 2–2.5 hours, with a decision point after step 3. If the linear probe can't beat the event-context lookup, we stop there.
+
+Do you want me to go ahead?
+
+---
+
+
+**User**
+
+yes
+
+---
+
+
+**Claude**
+
+Step 1: get the code and weights, and read how the model takes its input. The repo is external code, so I'll clone it into its own folder in the scratchpad and read the model code before running anything from it.
+
+---
+
+
+**Claude**
+
+I'll read the model code: `base.py` holds the visual encoder, the subject mask and the video model.
+
+---
+
+
+**Claude**
+
+Three test clips took about 6 seconds. I'll look at the crops and subject masks before running all clips; the previews stay local in the gitignored folder.
+
+---
+
+
+**Claude**
+
+All 5 seeds finished. Comparing E3 with V3 and the other models on the same folds:
+
+---
+
+
+**Claude**
+
+The summary script still imports `bootstrap_interval` from `crossval`, but that function moved to `votes.py` earlier today. I'll fix the import.
+
+---
+
+
+**Claude**
+
+EmotionCLIP helps with arousal, and works best as frozen features in a simple linear model alongside context and faces. It doesn't help with valence. All of this is cross-validated on the same deduplicated folds as before. Nothing in the repo changed: the extractor, probes and data copy live in the scratchpad, `dataset/` and `data/`.
+
+**Arousal (high vs low)**
+
+| Approach | Balanced accuracy | AUC | Plain accuracy |
+|---|---:|---:|---:|
+| Event-context lookup | 68% | 0.63 | 60% |
+| V3 (current candidate: context + face network) | 69% [57, 79] | 0.73 | 68% |
+| EmotionCLIP network (context + EmotionCLIP, V3 settings) | 60% [47, 75] | **0.75** | 73% |
+| **Linear: context + face + EmotionCLIP** | **74–75%** (range 65–79% over 5 fold arrangements) | **0.80–0.81** | 84%* |
+| Annotators (ceiling) | 77% | – | 81% |
+
+\*Plain accuracy is from the original fold arrangement only, where balanced accuracy was 79%. The other two columns average all five arrangements, so this figure is probably on the high side.
+
+**Valence (positive vs not)**
+
+| Approach | Balanced accuracy | AUC |
+|---|---:|---:|
+| V3 (face) | 65% | 0.71 |
+| EmotionCLIP alone (linear) | 41–47% | 0.35–0.48: **below chance** |
+| EmotionCLIP network | 52% | 0.59 |
+
+**What this shows**
+1. **Arousal: EmotionCLIP adds real signal.** Alone it beats the event context (AUC 0.72–0.77 against 0.65). Combined with context and face in a linear model, it gives the best arousal result so far: about 75% balanced accuracy and AUC 0.80, close to the annotators' 77%. This held across 5 fold arrangements and 8–16 embedding dimensions; at 32 dimensions it overfits (68%).
+2. **The network version is weaker than the linear one.** It ranks clips slightly better than V3 (AUC 0.75 against 0.73), but its yes/no calls are worse and vary a lot between seeds (56–71%). It also doesn't include faces, because the model has only one stream slot. Across this whole project, linear models have beaten networks on this little data.
+3. **Valence: don't use EmotionCLIP.** It's below chance in every setting, which means it learns cues tied to particular videos or children that reverse for new ones. For valence, the face expression model remains the useful input.
+
+**Caveats**
+- **Whole-scene embeddings can encode identity.** EmotionCLIP sees the room and the child, so with video-level groups, the same child or room appearing in several videos could inflate the result. Participant IDs would settle it.
+- **The best arousal setup was picked from several tried on this cross-validation.** It needs confirming on new labelled clips.
+- **The domain gap remains.** EmotionCLIP was trained on adult vloggers.
+- **Some subject boxes are wrong.** In a few clips the box lands on the wrong region, because the pose track itself was wrong; I checked this visually.
+- **Licensing:** the code is MIT, but the weights' licence is unstated. Check it before publishing anything built on them.
+
+**Suggested next step:** make a new candidate from the two best parts:
+- **valence** from V3 (faces);
+- **arousal** from a linear model on context + face + EmotionCLIP (16 dimensions).
+
+That means bringing the EmotionCLIP extractor into the package (vendoring the MIT model code) and adding a linear arousal model to cross-validation and `--evaluate`, so it can be confirmed on new clips. That's about 1.5–2 hours.
+
+Should I build it, or would you rather first check the weights licence and participant IDs?
+
+---
+
+
+**User**
+
+I have upload two new data features, vlm_embeddings which are embeddings of textual descriptions of environment context from a vlm and face_features_v3 which are features from models we run on the clips. use these features to train the model and report the results. Train on the vit model face features for now
+
+---
+
+
+**User**
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+<system-reminder>
+<tools-used-before-summary>Agent, AskUserQuestion, Bash, Edit, Grep, PowerShell, Read, SubagentHandback, TaskStop, ToolSearch, WebFetch, Write</tools-used-before-summary>
+</system-reminder>
+Summary:
+1. Primary Request and Intent:
+   - Earlier work (pre-summary): gap-filling poses, cross-validation, annotation architectures, speed channel, L1, linear probe. The test set was used once.
+   - This segment, in order:
+     - Try feeding video frames instead of pose ("do it and do another run").
+     - Build the face stream ("add the face stream and report the results. Also report accuracy").
+     - Add the detector gate and check clip 109.
+     - Run face-only models.
+     - Report accuracy: cross-validation, training data, best results.
+     - Investigate why the models fail to beat majority prediction.
+     - "use the recommended changes" (votes objective, binary calls, classification report).
+     - "implement the recommendations" (freeze V3, final models, `--evaluate` ensemble, README).
+     - Various explanations of tables, headers, the lookup and accuracy computation.
+   - Most recent: "do you think we can adapt the emotionclip model (https://github.com/xeaver/emotionclip) for our work. like finetuning as a downstream task", then "yes" to the plan:
+     1. weights and code;
+     2. per-step embedding extraction;
+     3. linear probe (decision point);
+     4. if signal, feed into the stream slot, 5 seeds.
+
+2. Key Technical Concepts:
+   - **Environment:** uv project, Python 3.13, torch 2.15 cu132, RTX 5090, Windows Git Bash/PowerShell. hwm finished on 11-05, so the GPU is free.
+   - **Data:**
+     - Labels are confidence-weighted means of 3 annotators' votes (Shahana, Olivia, Pranish). Valence votes are 1/0.5/0 (positive/neutral/negative); arousal votes are 1/0 (high/low only); 2 = unknown.
+     - Fleiss' κ ≈ 0.34 for valence and 0.33 for arousal.
+     - Annotator ceiling (one annotator vs the other two): valence 79% balanced, arousal 77%.
+   - **Binary calls:** valence positive vs not, arousal high vs low, by annotator majority (ties excluded). Balanced accuracy and AUC are the primary metrics; thresholds are chosen per fold on the train+val clips.
+   - **Duplicates:** videos 109_v_ArmFlapping_59 and 183_v_HandAction_05_0 are the same footage, now merged via `DUPLICATE_VIDEOS`.
+   - **Face pipeline:**
+     - FER ViT `trpakov/vit-face-expression`; the 768-d [CLS] is used.
+     - Quality gate: frontal (nose and both eyes tracked), YuNet detector score ≥ 0.8, brightness ≥ 40, sharpness ≥ 10.
+     - YuNet weights are in `~/.cache/asd_contextpose/`.
+   - **Face stream in the model:** per-step `[32, D+1]` (features plus mask), `LayerNorm → Linear(D, 32) → GELU`, masked mean per region, face head zero-initialised, `--face-targets valence|both`, `--face-dropout`, `--inputs face`.
+   - **Votes objective:** outputs are log-odds of a positive valence / high arousal vote; BCE against vote shares; residual on `group_logits`; early stopping on `mean_bce`.
+   - **EmotionCLIP (CVPR 2023):**
+     - Visual: ViT-B/32, 512-d embeddings, 224 px, ImageNet normalisation (as in the repo datasets).
+     - Subject mask: a binary [H, W] mask per frame, avg-pooled per patch into an extra positional token.
+     - `encode_video`: 8 frames plus a 6-layer temporal transformer.
+     - Weights: 2.04 GB on Google Drive; checkpoint keys `args, epoch, model, optimizer, grad_scaler, lr_scheduler`; 170M parameters.
+     - Code is MIT-licensed; no licence is stated for the weights.
+
+3. Files and Code Sections (repo: c:\Users\hfansah\workspace\cvpr):
+   - **src/asd_contextpose/face.py** (new)
+     - Contents: `FER_MODEL`, `FER_CLASSES`, `FACE_SIDE=0.9`, `CROP=224`, YuNet constants (`DETECTOR_URL`, `DETECTOR_PATH`, `DETECT_SIDE=2.0`, `DETECT_SIZE=320`).
+     - Functions: `step_frames(n_frames, fps, steps)` → [3, steps]; `face_centre`; `square_crop(frame, centre, side, pixels=CROP)`; `crop_quality`; `face_detector()`; `detector_score(detector, frame, centre, scale)`; `read_frames(video, wanted)`; `FaceEncoder(device)`; `extract_clip(pose_npz, video, encoder, steps, detector)`; `main`.
+     - Cache keys: `embedding`, `probs`, `found`, `frontal`, `brightness`, `sharpness`, `detector`. Output goes to `dataset/FaceFeatures/{split}`.
+   - **src/asd_contextpose/votes.py** (new)
+     - Constants: `TARGETS`, `VOTE_VALUES`, `POSITIVE`.
+     - Vote handling: `annotators`, `parse_votes`, `encode`, `decode`, `soft_target`, `majority`.
+     - Metrics: `binary_scores`, `annotator_ceiling`, `auc`.
+     - Moved from `crossval`: `vote_labels(rows)` (shares, classes, −1 = tie), `best_threshold`, `share_lookup` (now includes "column"), `bootstrap_interval` (returns None if every resample is undefined), `classification_report(pooled, all_rows)`.
+     - New: `has_votes`, `lookup_scores(table, rows)`, `fit_calls(rows, scores, column)` → {lookup, model_thresholds, lookup_thresholds, majority}, `make_calls(fit, rows, scores)`, `ensemble_report(rows, preds, fits)`.
+   - **src/asd_contextpose/prepare.py**
+     - `DUPLICATE_VIDEOS`; `video_id` canonicalises duplicates.
+     - `FACE_FEATURES`; gate constants `MIN_FACE_DETECTOR=0.8`, `MIN_FACE_BRIGHTNESS=40.0`, `MIN_FACE_SHARPNESS=10.0`.
+     - `face_regions(cache, features, steps)`; `--face DIR` and `--face-features`.
+     - NPZ adds `votes` [2]; manifests add `valence_votes`, `arousal_votes` and `face_kept_frac`.
+   - **src/asd_contextpose/model.py**
+     - `INPUTS` gains "face"; new constants `FACE_HIDDEN=32`, `FACE_TARGETS`, `FACE_KEYS`, `OBJECTIVES=("regression","votes")`.
+     - `ModelConfig` fields: `face_dim`, `face_targets`, `face_dropout`, `objective`.
+     - `ContextPose.forward(..., pre_face=None, event_face=None, post_face=None)`, plus `_face()`.
+     - `AnnotationContextPose` passes the face inputs through. Defaults are unchanged.
+   - **src/asd_contextpose/data.py:** loads `FACE_KEYS` when `face_dim` is set, and "votes" when the objective is votes.
+   - **src/asd_contextpose/train.py**
+     - New functions: `group_logits`, `vote_metrics`, `score_predictions`, `selection_score`.
+     - `predict()` now returns a dict {pred, target, votes, participants}.
+     - New flags: `--objective`, `--face-dim`, `--face-targets`, `--face-dropout`. `--evaluate` now takes `nargs="+"` checkpoints as an ensemble.
+     - After training, if the manifests have votes, it fits `classification` (`fit_calls` on train+val, column = `residual_by` or "event_text") and re-saves the checkpoint. The test report gets classification too.
+   - **src/asd_contextpose/crossval.py**
+     - `predict(checkpoint, manifest, device, split="test")`.
+     - With votes it computes `fit_calls`/`make_calls` per fold, adds pooled entries (votes, classes, scores, calls), writes `report["classification"]` and `report["objective"]`, and branches for the votes objective.
+     - `classification_report = annotator_votes.classification_report`.
+   - **Tests** (95 pass after the last test addition):
+     - test_face.py (step_frames, face_centre, square_crop, detector_score via FakeDetector);
+     - test_votes.py;
+     - test_prepare.py (fixture has annotator columns; votes, duplicates and face gate tests);
+     - test_train.py (face stream, group_logits, votes objective, checkpoint call rules plus ensemble evaluate);
+     - test_crossval.py (classification report, regression and votes parametrised; best_threshold; vote_labels);
+     - test_model.py (face stream tests).
+   - **README.md** sections: Face stream; `--speed` bullet; duplicate and votes bullets; "Annotator votes and binary calls"; "Recommended model (V3)" (recipe, ensemble `--evaluate` command, results table vs ceiling, caveats).
+   - **dataset/visual_checks/face_crops_check.py:** local contact sheet using the full gate including the detector.
+   - **Data and output:**
+     - Data: `data/vitpose_face`, `data/vitpose_faceprob`, `data/vitpose_face_det` (current: votes, dedup, detector gate; contains some stale NPZs not in the manifests), `data/vitpose_eclip` (EmotionCLIP in the face slot, `[32, 513]`).
+     - Checkpoints: `checkpoints/face`, `face_det`, `face_dedup`, `votes` (R0, R3, R5, V0, V3, V5, E3), `votes_check`, `final_v3/seed1-5.pt` (with classification).
+     - Feature caches: `dataset/FaceFeatures` (with detector; v1 backup in `FaceFeatures_v1`), `dataset/EmotionCLIPFeatures/{train,test}` (`frame_emb` [3,32,512] fp16, `video_emb` [3,512], `tracked` [3,32]).
+   - **Scratchpad** (C:\Users\hfansah\AppData\Local\Temp\claude\c--Users-hfansah-workspace-cvpr\19e02c99-2ff8-4e41-88cb-44b4847649ed\scratchpad\):
+     - Summaries and analysis: `summarize_face.py`, `face_fair.py`, `in_sample.py`, `in_sample_orig.py`, `cv_accuracy.py`, `raters.py`, `classifier_probe.py`, `summarize_votes.py` (import now from `asd_contextpose.votes`).
+     - Patches: `patch_*.py`, `readme_v3.py`.
+     - Run scripts: `face_experiments.sh`, `face_det_chain.sh`, `face_only.sh`, `dedup_runs.sh`, `votes_experiments.sh`, `final_v3.sh`, `eclip_runs.sh`.
+     - Earlier probes: `media_features.py`, `media_probe.py`.
+     - EmotionCLIP: `third_party/EmotionCLIP` (cloned at commit ca142dd), `emotionclip_loader.py` (stubs torchvision `FrozenBatchNorm2d`, loads base.py via importlib, `EmotionCLIP(backbone_config=REPO/src/models/model_configs/ViT-B-32.json)`, `torch.load(weights_only=True)`, strict load), `emotionclip_features.py` (child box from joints padded 0.3 × scale with torso extension 2.0; ±2-frame search; square crop of 0.875 × short side centred on the child; empty mask when untracked; 8 steps chosen via linspace for `encode_video`; autocast fp16; L2 normalise), `emotionclip_probe.py`, `emotionclip_robust.py`, `emotionclip_robust.tsv`.
+     - EmotionCLIP weights: `~/.cache/asd_contextpose/emotionclip/emotionclip_latest.pt` (sha256 24a9960c…).
+
+4. Errors and fixes:
+   - A malformed bash heredoc (`unexpected EOF`) → patches are now written as script files with the Write tool.
+   - `cat > /tmp/...` hung waiting on stdin → stopped the task and reran via a file.
+   - After moving code, a `majority` local shadowed the `majority()` function in `vote_labels` → renamed the local to `winners`.
+   - `bootstrap_interval` hit an empty percentile when the test had one class → it now returns None; crossval's print guards against AUC None.
+   - Import sorting (ruff I001) → fixed with `ruff --fix`.
+   - The summarizer path check failed across data dirs → match clips by file name.
+   - cp1252 encoding errors on "→" → set `PYTHONIOENCODING=utf-8`.
+   - `summarize_face` ran on import → copied the accuracy function into `face_fair.py` instead.
+   - The `needs_review` filter was missing when reconstructing the train-fold lookup → added.
+   - A grep buffered the background output → noted, not an error.
+   - EmotionCLIP's median-box fallback put the subject on the TV → untracked steps now use an empty mask; neighbour search narrowed from ±5 to ±2 frames.
+   - `summarize_votes.py` import error after the refactor → changed the import to `votes`.
+   - torchvision is missing → stubbed only for EmotionCLIP.
+
+5. Problem Solving:
+   - **Why models don't beat majority accuracy:**
+     - annotator disagreement (the ceiling is only 2–3 points above the majority);
+     - ±⅓ cut points split identical vote patterns, and the "neutral arousal" class is really disagreement;
+     - the inputs rarely make a minority class the likelier one (minority predictions are correct only 13–43% of the time);
+     - oracle thresholds add only +0–2 points;
+     - unweighted classifiers collapse to the majority.
+   - **Face-only regression** beats the overall median (+0.069 [+0.026, +0.112]) on deduplicated folds; the duplicate did not inflate it.
+   - **V3 results (votes, context + face):** valence 65% [53, 75] balanced, AUC 0.71; arousal 69% [57, 79], AUC 0.73. Best plain accuracy: valence 67%, arousal 77% (logistic context classifier). Refactor check: identical results.
+   - **EmotionCLIP linear probe** (robust over 5 fold seeds × PCA 8/16/32):
+     - Arousal: EmotionCLIP alone AUC 0.72–0.77 (context 0.65). Context + face + EmotionCLIP averages about 74–75% balanced and AUC 0.80 at 8–16 dimensions (the single-run 79% was the optimistic top; 32 dimensions overfits to 68%).
+     - Valence: consistently below chance (AUC 0.35–0.48), probably video-specific confounds; unusable.
+   - **E3 network** (votes, context + EmotionCLIP stream, face-dim 512, face-targets both), latest result:
+     - Valence: accuracy 55%, balanced 52% [42, 61], AUC 0.59.
+     - Arousal: accuracy 73%, balanced 60% [47, 75], AUC 0.75 [0.62, 0.85], gain vs lookup −8%; single seeds 62/62/71/57/56.
+     - For comparison, V3 arousal: 69% balanced, AUC 0.73.
+     - So the network doesn't reproduce the probe's arousal balanced accuracy, though its AUC is slightly higher.
+
+6. All user messages (this segment):
+   - "instead of pose, can we directly feed video frames to model. will that improve results?"
+   - "do it and do another run"
+   - "what is the performance of model on context only, pose only and combination of both"
+   - "how long will both take. give best estimate"
+   - "what is the objective of the first. what are we trying to achieve"
+   - "is the hwm still running?"
+   - "I want to jump directly to step 2. describe the architecture"
+   - "how well does the face model work. have you tried it already?"
+   - "add the face stream and report the results. Also report accuracy"
+   - "how far?"
+   - "explain the headers for the table"
+   - "show samples of the face crops"
+   - "yes" (detector gate and clip 109 check)
+   - "what output from the vit face model are you feedng to my model?"
+   - "what is the lookup?"
+   - "how does the face only model perform"
+   - "how does model perform on model its been trained on. not cross validation"
+   - "report on the accuracy as well for held-out - training"
+   - "report accuracy on cross validation"
+   - "how is the accuracy being calculated?"
+   - "just give me the final accuracy of the model for both valence and arousal using cross-validation"
+   - "what about accuracy on training data"
+   - "add accuracy without face to the table"
+   - "investigate thoroughly why the model is failing to be the majority class prediction"
+   - "use the recommended changes"
+   - "how far"
+   - "implement the recommendations"
+   - "explain the Results against the annotator ceiling:"
+   - "report the best accuracy we've gotten for arousal and valence"
+   - "report the best accuracy we've gotten for arousal and valence with cross validation"
+   - "remove the majority guess from the table and report only model accuracy"
+   - "do you think we can adapt the emotionclip model (https://github.com/xeaver/emotionclip) for our work. like finetuning as a downstream task"
+   - "yes"
+   - Standing constraints (from earlier):
+     - do not kill the hwm run (it has finished);
+     - images contain children's faces: keep visuals local and never publish them;
+     - commit only when asked (nothing is committed);
+     - the test set has been used once: no further selection on it, and V3 should be confirmed on new labelled clips.
+
+7. Pending Tasks:
+   - Report the EmotionCLIP results (steps 3–4) to the user: the probe, the robustness check, and E3 vs V3.
+   - Decide and recommend next steps, e.g.:
+     - a second stream to combine face (valence) with EmotionCLIP (arousal);
+     - an output-level combination: V3 for valence, E3 or the probe for arousal;
+     - stop.
+   - Optional: decide whether to move the EmotionCLIP extractor into the repo. If so, the weights licence is unstated and needs checking.
+   - Commit only if the user asks. Participant IDs and new labelled clips are on the user's side.
+
+8. Current Work:
+   I was running the EmotionCLIP plan the user approved ("yes"). Done so far:
+   - cloned the repo;
+   - downloaded the weights;
+   - built `emotionclip_loader.py`;
+   - extracted features for all 191 clips (child tracked in 94% of steps);
+   - ran the linear probe and the robustness check;
+   - built `data/vitpose_eclip`;
+   - trained E3 (5 seeds; `eclip_runs.sh`, all done 12:19–12:22).
+
+   The last command printed the summary. E3 valence: 52% balanced [42, 61], AUC 0.59. E3 arousal: 60% balanced [47, 75], AUC 0.75 [0.62, 0.85], accuracy 73%. That compares with V3 (valence 65% / 0.71; arousal 69% / 0.73) and the lookup (arousal 68% / 0.63). The result had not yet been reported to the user.
+
+9. Optional Next Step:
+   Report the EmotionCLIP outcome to the user, directly answering the approved plan ("If it shows signal: feed it into the existing face-stream slot ... alone and alongside faces, 5 seeds each"):
+   - **Probe:** arousal signal confirmed (context + face + EmotionCLIP about 74–75% balanced, AUC about 0.80 averaged over fold seeds); valence below chance.
+   - **E3 network:** AUC 0.75 but balanced accuracy only 60%, below V3's 69%.
+   - **Recommendation:** combine the face stream (valence) with EmotionCLIP (arousal), either through a second stream or by combining at the output level. Ask before further implementation or committing.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: C:\Users\hfansah\.claude\projects\c--Users-hfansah-workspace-cvpr\19e02c99-2ff8-4e41-88cb-44b4847649ed.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
+
+The messages after this summary are the most recent messages from before compaction, kept verbatim. The summary was written without seeing them, so something it says has not happened yet may already have happened in them.
+
+---
+
+
+**Claude**
+
+Short update: I've looked at both new folders. Next I'm working out how the ViT face features line up in time with our pose steps, then I'll build the data and train.
+
+---
+
+
+**Claude**
+
+That's a low-frame-rate video (about 9 fps), so half a frame is 0.05 s. The match is fine; I'm relaxing the tolerance.
+
+---
+
+
+**Claude**
+
+One clip has no face in any frame, so its file has no feature arrays. I'll treat it as having no usable face.
+
+---
+
+
+**Claude**
+
+Data is built. Now launching the network cross-validation: 3 configurations × 5 seeds, V3 settings, the same folds.
+
+---
+
+
+**Claude**
+
+While those train, I'll run the same linear probe as for EmotionCLIP on the new features.
+
+---
+
+
+**Claude**
+
+The network cross-validation is about a third done (F3 is on its fifth seed; L0 and L3 are still to run). I'll summarise all three against V3 when they finish.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>brb3ybwcd</task-id>
+<tool-use-id>toolu_01SjGfnq7jGur1LaHw88Tnv5</tool-use-id>
+<output-file>C:\Users\hfansah\AppData\Local\Temp\claude\c--Users-hfansah-workspace-cvpr\19e02c99-2ff8-4e41-88cb-44b4847649ed\tasks\brb3ybwcd.output</output-file>
+<status>completed</status>
+<summary>Background command "Run cross-validation for the three new configs" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+
+**Claude**
+
+Overall, neither new feature beats the current V3 model. The VLM embeddings match V3 on arousal and rank clips a little better. The uploaded ViT face features are clearly worse than our own face features, especially for valence. All results are cross-validated on the same 153 development clips and folds as V3, with 5 seeds; the test set was not used.
+
+**What I trained** (V3 settings and the votes objective; the event-context lookup stays in every model, as in V3):
+- **F3:** V3 with its face stream switched to the uploaded ViT face features (`backbone_cls`, the frame nearest each step, using their `face_found` flag as the gate).
+- **L0:** the VLM clip embedding in place of the event context.
+- **L3:** the VLM embedding plus the uploaded ViT face features.
+
+**Valence (positive vs not)**
+
+| Model | Accuracy | Balanced accuracy [95% CI] | AUC |
+|---|---:|---:|---:|
+| **V3** (context + our face) | **67%** | **65%** [53, 75] | **0.71** |
+| F3: context + ViT face | 61% | 57% [45, 69] | 0.57 |
+| L0: VLM | 63% | 61% [50, 70] | 0.60 |
+| L3: VLM + ViT face | 62% | 58% [45, 70] | 0.56 |
+
+**Arousal (high vs low)**
+
+| Model | Accuracy | Balanced accuracy [95% CI] | AUC |
+|---|---:|---:|---:|
+| V3 (context + our face) | 68% | 69% [57, 79] | 0.73 |
+| F3: context + ViT face | 68% | 58% [46, 73] | 0.70 |
+| **L0: VLM** | **75%** | **69%** [60, 81] | **0.75** |
+| L3: VLM + ViT face | 76% | 66% [53, 82] | 0.72 |
+
+For reference, the annotators reach 79% balanced accuracy on valence and 77% on arousal.
+
+**What this shows**
+1. **The uploaded ViT face features carry almost no valence signal.**
+   - I also tried every array in the ViT files (`backbone_cls`, `backbone`, `eq_embed`, `eq_hidden`, `contrast`) and a stricter detector gate (score ≥ 0.8). In a simple linear model on the face alone, valence AUC stayed between 0.48 and 0.55. Our own face features score 0.63–0.65 on the same test.
+   - They also aren't our model: they agree poorly with our face embeddings (cosine 0.17).
+   - They may not be tuned for facial expression, or the crops may differ. If you know what `eq_embed` and `eq_hidden` are, that would help.
+   - They do carry some arousal signal (AUC about 0.65), but not enough to help.
+2. **The VLM embeddings add some arousal signal.**
+   - L0 matches V3's balanced accuracy, with higher AUC (0.75 vs 0.73) and plain accuracy (75% vs 68%).
+   - In a linear model, event context + VLM + ViT face reached 75% balanced accuracy and AUC 0.80. But that held only at the smaller embedding size (8 dimensions); at 16 it fell to 66% and 0.73, so I wouldn't rely on it.
+   - None of these gains over the event-context lookup are statistically significant.
+3. **For valence, V3 is still the best model.**
+
+**Caveats**
+- **The VLM descriptions mention visible emotion.** Words like "laughing" (34 clips), "smiling" (29) and "crying" (14) appear, so some of the VLM's signal is its own reading of the child's expression. That's a legitimate input, but worth knowing when interpreting it.
+- **Identity leakage is possible.** The descriptions also describe the room, so the same child or setting could link folds. Participant IDs would rule this out, as with EmotionCLIP.
+- **Most VLM context labels are unreviewed.** 134 of the 185 clips are marked `needs_review`. I only used the embeddings, not those labels.
+
+The new features are in `data/vitpose_v3vlm` and the checkpoints in `checkpoints/v3vlm/`. The build, run and probe scripts are in the scratchpad (`C:\Users\hfansah\AppData\Local\Temp\claude\c--Users-hfansah-workspace-cvpr\19e02c99-2ff8-4e41-88cb-44b4847649ed\scratchpad\build_v3_data.py`, `v3vlm_runs.sh`, `v3vlm_probe.py`). The repo code is unchanged and nothing is committed.
+
+The most promising next step is V3 for valence with the VLM embedding added for arousal (VLM + our face). It's about 5 minutes of training. Should I run it, or try the `swin`/`hybridt` face models first?
+
+---
+
+
+**User**
+
+how long are you training for?
+
+---
+
+
+**Claude**
+
+Each model trains for **at most 60 epochs**. Early stopping halts it once the held-out validation loss hasn't improved for 10 epochs, and the best epoch is kept. These are the V3 settings: learning rate 3e-4, the votes objective (BCE).
+
+Each configuration is 5 seeds × 5 folds = 25 models. On the RTX 5090 that took about 2–2.5 minutes per configuration, so roughly 8 minutes for all three.
+
+The epoch that was kept for each model:
+
+| Configuration | Median kept epoch | Range | Hit the 60-epoch cap |
+|---|---:|---:|---:|
+| V3 (reference) | 21 | 13–58 | 0 of 25 |
+| F3: context + ViT face | 16 | 1–49 | 0 of 25 |
+| L0: VLM | 45 | 1–60 | **5 of 25** |
+| L3: VLM + ViT face | 21 | 1–35 | 0 of 25 |
+
+Two things in this table matter:
+- **L0 (VLM only) may be undertrained.** Its median kept epoch is 45, and 5 of its 25 models were still improving at epoch 60. Its arousal result (69% balanced, AUC 0.75) could be a bit low. It's the only configuration without a face stream, and the VLM input enters through a full 384→64 projection, so it learns more slowly.
+- **A few models kept epoch 1** (in F3, L0 and L3). On those folds, training never beat the starting point, which is essentially the event-context lookup plus a near-zero correction. That fits the earlier finding that the inputs add little on top of the lookup.
+
+I can rerun L0 with a 150-epoch cap and the same patience. That's about 3–4 minutes and only lets training run as long as validation keeps improving.
+
+---
+
+
+**User**
+
+yes do that
+
+---
+
+
+**Claude**
+
+With the 150-epoch cap, the VLM-only model (L0) improves a little on arousal and is unchanged on valence. No model reached the new cap: 8 of the 25 kept an epoch past 60, the latest at epoch 99, so it has now converged.
+
+**Arousal (high vs low)**
+
+| Model | Accuracy | Balanced accuracy [95% CI] | AUC [95% CI] | Single seeds |
+|---|---:|---:|---:|---|
+| Event-context lookup | 60% | 68% | 0.63 | – |
+| V3 (context + our face) | 68% | 69% [57, 79] | 0.73 [0.62, 0.85] | 67–70% |
+| L0: VLM, 60-epoch cap | 75% | 69% [60, 81] | 0.75 [0.64, 0.85] | 63–75% |
+| **L0: VLM, 150-epoch cap** | **79%** | **72%** [63, 85] | **0.77** [0.66, 0.87] | 64–77% |
+
+**Valence (positive vs not)**
+
+| Model | Accuracy | Balanced accuracy [95% CI] | AUC |
+|---|---:|---:|---:|
+| **V3** | **67%** | **65%** | **0.71** |
+| L0: VLM, 150-epoch cap | 63% | 62% | 0.60 |
+
+**What this shows**
+- **On arousal, VLM-only is now the best network so far.** It beats V3 by 3 points of balanced accuracy and 0.04 AUC. Its 79% plain accuracy is the first network result above always predicting "low" (78%).
+- **The gains are small and uncertain.** The gain over the lookup is +5% [−8, +19], not significant. The single seeds still vary widely (64–77%).
+- **I picked the longer cap after seeing the cross-validation results.** That's a mild form of tuning on these clips, so treat it as optimistic until it's checked on new clips.
+- **For valence, keep V3's face features.**
+
+Checkpoints are in `checkpoints/v3vlm_e150/L0_vlm_e150/`.
+
+The natural next candidate is still V3's face stream plus the VLM embedding: faces for valence, VLM for arousal, with the 150-epoch cap. That's about 4 minutes of training. Should I run it?
+
+---
+
+
+**User**
+
+yes
+
+---
+
+
+**Claude**
+
+Combining V3's face stream with the VLM embedding in one network gets the best of neither. It is slightly behind V3 on valence and behind VLM-only on arousal. Same folds and 5 seeds as before; all 25 models stopped early (median kept epoch 34, latest 75).
+
+**Valence (positive vs not)**
+
+| Model | Accuracy | Balanced accuracy [95% CI] | AUC |
+|---|---:|---:|---:|
+| **V3** (context + our face) | **67%** | **65%** [53, 75] | **0.71** |
+| VLM + our face (new) | 64% | 64% [51, 74] | 0.69 |
+| VLM only | 63% | 62% [51, 70] | 0.60 |
+
+**Arousal (high vs low)**
+
+| Model | Accuracy | Balanced accuracy [95% CI] | AUC |
+|---|---:|---:|---:|
+| V3 | 68% | 69% [57, 79] | 0.73 |
+| VLM + our face (new) | 73% | 69% [56, 79] | 0.75 |
+| **VLM only** | **79%** | **72%** [63, 85] | **0.77** |
+
+**What this shows**
+- **Adding the face to the VLM model brings valence close to V3, but costs arousal.** On these 150 clips the extra face inputs add noise to the arousal output.
+- **The best so far is two separate models, one per target:**
+
+  | Target | Model | Accuracy | Balanced accuracy | AUC |
+  |---|---|---:|---:|---:|
+  | Valence | V3 | 67% | 65% | 0.71 |
+  | Arousal | VLM-only | 79% | 72% | 0.77 |
+
+  Both models already exist, so this needs no new training.
+- **None of these differences is significant.** All the confidence intervals overlap heavily, and every gain over the event-context lookup has an interval that includes zero.
+- **The more configurations we compare on the same 150 clips, the more optimistic the winner's numbers become.** Choosing V3 for valence and VLM-only for arousal is now a pick from about ten configurations. New labelled clips are the only clean test.
+
+The data for this run is in `data/vitpose_face_vlm` and the checkpoints are in `checkpoints/v3vlm_e150/LF_vlm_oldface_e150/`.
+
+If you want to adopt the two-model pairing, I'd do three things:
+1. Train final VLM-only models (5 seeds on all development clips, like `final_v3`).
+2. Let `--evaluate` take valence from one set of checkpoints and arousal from another.
+3. Add the VLM embedding as a proper `prepare` option instead of my scratchpad copy.
+
+That's about 1 hour.
+
+---
+
+
+**User**
+
+how did you use velocity to improve arousal
+
+---
+
+
+**Claude**
+
+Velocity helped arousal only in the earlier regression models. It doesn't feed into V3 or any of the newer models.
+
+**How it's computed** (`--speed` in [prepare.py:109-163](src/asd_contextpose/prepare.py#L109-L163))
+1. Take the pose coordinates, which are centred on the shoulders and scaled by shoulder width. Speed for each joint in each frame is the distance moved since the previous frame times the frame rate (25 fps), so the unit is shoulder widths per second.
+2. Steps faster than 20 shoulder widths/s are tracking jumps and are capped there. A joint with no valid neighbouring frame gets zero.
+3. Average the speeds over each of the 32 resampling bins. Resampling alone would make speed depend on how long the region is; averaging keeps it in real units.
+4. Append the result as a 4th feature per joint, so each region's pose becomes [32 steps × 11 joints × (x, y, confidence, speed)].
+
+**How the model used it**
+The pose stream reads these features: a convolution over time, then attention queried by the event context. The network has to learn by itself that fast movement means high arousal; there's no hand-written rule.
+
+**What it did** (regression models, cross-validated)
+- **Network arousal correlation (CCC) went from 0.02 to 0.17** when speed was added to `annotation_attention`. Built as a correction on the context lookup, it reached 0.25. That was the first time the networks used the pose at all.
+- **Its error never dropped below the lookup's.** Arousal MAE stayed around 0.51 against the lookup's 0.50, and every network tied or lost to the lookup.
+- **The movement signal didn't hold on the held-out test.** A linear model on context plus movement reached arousal CCC 0.32 in cross-validation, but scored 0.00 on the held-out test. That's the one time the test set has been used.
+
+**Where it stands now**
+- V3, VLM-only and VLM + face all set `--inputs face` or `--inputs text`, which skip the pose stream entirely ([model.py:181-185](src/asd_contextpose/model.py#L181-L185)).
+- The data still contains the speed channel (`--joint-features 4`), but these models never read it.
+- Their arousal performance comes from the event-context lookup plus the face, VLM or EmotionCLIP features, not from movement. That follows the earlier finding that pose didn't help once those inputs were in.
+
+If you want, I can try speed again inside the current best arousal model, VLM-only with the pose stream switched on. That's about 4 minutes. Given the held-out failure, I'd expect little.
+
+---
+
+
+**User**
+
+do that
+
+---
+
+
+**Claude**
+
+Pose with speed made it much worse, especially for arousal. But this run also changed how the VLM input reaches the output, so I'm rerunning with that held equal.
+
+---
+
+
+**Claude**
+
+Adding pose with speed makes the VLM model clearly worse on both targets, so I'd leave it out. Both versions give nearly the same result: the one where the VLM input only steers the pose attention, and the rerun that also feeds it straight to the output (`--text-skip`). So the drop comes from the pose itself, not from how the VLM is wired in.
+
+Same folds and 5 seeds as before, 150-epoch cap.
+
+**Arousal (high vs low)**
+
+| Model | Accuracy | Balanced accuracy [95% CI] | AUC [95% CI] |
+|---|---:|---:|---:|
+| Event-context lookup | 60% | 68% | 0.63 |
+| **VLM only** | **79%** | **72%** [63, 85] | **0.77** [0.66, 0.87] |
+| VLM + pose with speed | 61% | 59% [47, 71] | 0.67 [0.54, 0.79] |
+| VLM + pose with speed, VLM also fed straight to the output | 57% | 60% [48, 72] | 0.67 [0.54, 0.79] |
+
+**Valence (positive vs not)**
+
+| Model | Accuracy | Balanced accuracy | AUC |
+|---|---:|---:|---:|
+| VLM only | 63% | 62% | 0.60 |
+| VLM + pose with speed (either version) | 57% | 58% | 0.59 |
+
+**What this shows**
+- **Arousal falls below the plain lookup** with pose added: 59–60% balanced accuracy against the lookup's 68%. That's a gain of about −8% [−17, +1], so it's close to significantly worse.
+- **The pose models overfit quickly.** Their median kept epoch is 11, against 45 without pose. With 150 clips, the pose stream learns patterns that don't carry over to other videos.
+- **This matches the earlier record.** Speed raised the regression network's arousal correlation in cross-validation, but never beat the lookup, and the movement signal failed on the held-out test. On every evidence so far, pose doesn't help.
+
+The best results stay as they were:
+
+| Target | Model | Balanced accuracy | AUC |
+|---|---|---:|---:|
+| Valence | V3 | 65% | 0.71 |
+| Arousal | VLM only | 72% | 0.77 |
+
+Checkpoints are in `checkpoints/v3vlm_e150/LP_vlm_pose_speed_e150/` and `LPs_vlm_pose_speed_skip_e150/`.
+
+---
+
+
+**User**
+
+we want to run the experiments on two baseline models, gru and bilstm. implement them in baseline_models.py and run the experiments on them
+
+---
+
+
+**Claude**
+
+The file is empty, so I'll design the baselines to plug into the existing training, cross-validation and votes pipeline. First, a look at how models are built and called.
+
+---
+
+
+**Claude**
+
+Now the edits to `model.py`: model names, the conditioning key, a shared input check, and dispatch.
+
+---
+
+
+**Claude**
+
+The moved block kept its method indentation; I'll dedent it.
+
+---
+
+
+**Claude**
+
+Now the baselines themselves:
+
+---
+
+
+**Claude**
+
+Now `train.py`: the default `--text-dim` for annotation-conditioned models, and the help text.
+
+---
+
+
+**Claude**
+
+Now tests for the baselines:
+
+---
+
+
+**Claude**
+
+The runs have started cleanly: the first GRU fold is training with no errors. There are 10 configurations × 5 seeds, so it will take a while. I'll summarise against the transformer results when it finishes.
+
+---
+
+
+**User**
+
+how far?
+
+---
+
+
+**Claude**
+
+About 2 of the 10 configurations are done:
+
+- **GRU, pose + context:** finished, all 5 seeds.
+- **GRU, face + context:** 4 of 5 seeds done.
+- **The other 8** (3 more GRU, then 5 BiLSTM): not started yet.
+
+Each configuration takes about 3 minutes, so everything should finish around **15:05–15:10**, about 25 more minutes. Nothing has failed so far.
+
+---
+
+
+**User**
+
+how far
+
+---
+
+
+**Claude**
+
+The runs are about two-thirds done:
+
+- **All 5 GRU configurations are finished.**
+- **BiLSTM:** pose + context is finished, and face + context is on seed 4 of 5.
+- **Still to run:** the last 3 BiLSTM configurations.
+
+Nothing has failed so far. The finish time is still around **15:07**, about 10 more minutes.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>bw48c4qat</task-id>
+<tool-use-id>toolu_01KhemRdGZKJ1eAR7kMQqipT</tool-use-id>
+<output-file>C:\Users\hfansah\AppData\Local\Temp\claude\c--Users-hfansah-workspace-cvpr\19e02c99-2ff8-4e41-88cb-44b4847649ed\tasks\bw48c4qat.output</output-file>
+<status>completed</status>
+<summary>Background command "Run GRU and BiLSTM baseline cross-validation" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+
+**Claude**
+
+The GRU and BiLSTM baselines don't beat the transformer models on either target. All 10 configurations finished and none failed.
+
+**What I built**
+- **The models:** GRU and BiLSTM sequence models, in [baseline_models.py](src/asd_contextpose/baseline_models.py). They are selected with `--model annotation_gru` / `annotation_bilstm` (event context) or `text_gru` / `text_bilstm` (VLM embedding).
+- **How they read a clip:** the pre-event, event and post-event steps are joined into one 96-step sequence, each step tagged with its region. A step holds the pose and/or the face features with their quality mask. The recurrent summary is combined with the context or VLM vector before the output layer.
+- **How they were trained:** the same way as the transformer runs (votes objective, starting from the event-context lookup, V3 settings, a 150-epoch cap, the same folds, 5 seeds).
+- **Code changes:**
+  - [model.py](src/asd_contextpose/model.py) registers the new model names and moves the input checks into a shared function.
+  - [train.py](src/asd_contextpose/train.py) sets the default context width for the new names.
+  - 15 new tests are in [test_baseline_models.py](tests/test_baseline_models.py). All 109 tests pass, and lint is clean.
+
+**Results** (balanced accuracy / AUC; the transformer column is the earlier runs; the best per row is in bold)
+
+| Inputs | Valence: Transformer | Valence: GRU | Valence: BiLSTM | Arousal: Transformer | Arousal: GRU | Arousal: BiLSTM |
+|---|---|---|---|---|---|---|
+| Pose + context | 54% / 0.60 | **57% / 0.59** | 57% / 0.57 | 62% / **0.68** | 62% / 0.64 | 60% / 0.62 |
+| Face + context | **65% / 0.71** (V3) | 55% / 0.64 | 53% / 0.63 | **69% / 0.73** (V3) | 64% / 0.67 | 67% / 0.67 |
+| Pose + face + context | – | 60% / 0.61 | 60% / 0.63 | – | 67% / 0.64 | 56% / 0.68 |
+| VLM + face | **64% / 0.69** | 61% / 0.65 | 60% / 0.64 | **69% / 0.75** | 64% / 0.69 | 68% / 0.74 |
+| VLM + pose | 58% / 0.59 | **62% / 0.60** | 54% / 0.58 | 59% / 0.67 | **66% / 0.70** | 63% / 0.68 |
+| VLM only | 62% / 0.60 | – | – | **72% / 0.77** | – | – |
+
+For reference:
+
+| Reference | Valence | Arousal |
+|---|---|---|
+| Event-context lookup | 53% / 0.55 | 68% / 0.63 |
+| Annotators | 79% | 77% |
+
+**What this shows**
+- **The best results are still transformer models:** V3 for valence (65% / 0.71) and VLM-only for arousal (72% / 0.77). No recurrent model reaches either.
+- **The recurrent models use the face worse.** With face + context, valence falls from 65% to 53–55%. V3's face stream averages only the steps with a usable face; the recurrent models have to learn that from steps that are mostly masked. One more difference: V3 adds its face correction straight onto the lookup, while the recurrent models also read the context.
+- **With pose, the GRU does a little better than the transformer.** For VLM + pose, arousal is 66% against 59%. It still doesn't beat the plain lookup (68%), so this mostly shows the GRU overfits the pose less.
+- **The BiLSTM with pose + context learned almost nothing.** Its median kept epoch is 2, so it stayed close to the starting lookup.
+- **None of the gains over the lookup is significant**, and the 5 seeds vary as much as before.
+
+Two of the transformer reference runs were trained differently: pose + context and V3 used a 60-epoch cap instead of 150. Neither hit that cap (their latest kept epoch was 58 or earlier), so I don't expect it changed their results.
+
+The checkpoints are in `checkpoints/baselines/`, and the run script is `C:\Users\hfansah\AppData\Local\Temp\claude\c--Users-hfansah-workspace-cvpr\19e02c99-2ff8-4e41-88cb-44b4847649ed\scratchpad\baseline_runs.sh`. Nothing is committed. I can add a baselines section to the README with this table if it's going into the write-up.
+
+---
+
+
+**User**
+
+write a detailed report of what we've done so far, the results and the architectures in latex
+
+---
+
+
+**Claude**
+
+I'll gather the facts first: the README documents the pipeline, and I'll pull earlier results from the logs.
+
+---
+
+
+**Claude**
+
+Still gathering facts: I'm working through the earlier experiment logs (data audit, gap-filling, cross-validation, architectures) so the report's numbers are accurate. Then I'll write the LaTeX.
+
+---
+
+
+**Claude**
+
+I have the history. Checking a few implementation details (votes loss, lookup log-odds, thresholds, bootstrap) so the method section is exact.
+
+---
+
+
+**Claude**
+
+Now a sanity check: non-ASCII characters, balanced braces and environments. I'm also scaling the two diagrams to the text width, since they're wider than the page.
+
+---
+
+
+**Claude**
+
+The heredoc lost its backslashes. I'll put the check in a script file.
+
+---
+
+
+**Claude**
+
+That's a false alarm from my checker: it misreads a line break `\\` followed by `{`. Fixing the checker.
+
+---
+
+
+**Claude**
+
+Written for: research collaborators or supervisors who know ML but haven't followed the day-to-day experiments.
+
+The report is at [reports/asd_contextpose_report.tex](reports/asd_contextpose_report.tex). **I haven't compiled it:** no LaTeX is installed on this machine. I checked the source for balanced braces and environments, inline math, undefined references, stray `%` signs and non-ASCII characters. Compile it on Overleaf or a local TeX install and send me any error.
+
+**What it contains**
+- **Summary:** the task, the work in order, and a headline table of the best results against the annotator ceiling.
+- **Data:** the audit, gap-filling (pose recovery from 148 to 185 clips), model inputs, splits, the duplicate videos, and annotator agreement.
+- **Evaluation:** the cross-validation protocol, the context lookup (with its full table), the metrics for both phases, and the one use of the test set.
+- **Architectures:**
+  - ContextPose and its FiLM and annotation variants, with equations and a TikZ diagram;
+  - the lookup residual, face stream, votes objective and linear probes;
+  - the GRU/BiLSTM baselines, with a second diagram;
+  - the training settings.
+- **Results, with tables:**
+  - regression architectures, speed and L1 runs, the held-out test, and the media probe;
+  - the face stream and face-only results;
+  - why accuracy couldn't beat the majority class;
+  - V3, EmotionCLIP, VLM and the uploaded ViT features, pose revisited, and the recurrent baselines.
+- **Discussion:** what the evidence supports, the limitations, and next steps.
+- **Appendix:** reproduction commands and a map of the code.
+
+**Things to check before sharing**
+- **The numbers come from the experiment logs in this session.** The results tables don't mix fold arrangements: phase 1 used the original folds and phase 2 the deduplicated folds, and the report says so.
+- **Titles and attribution:** the author line is a placeholder ("ASD-ContextPose project"), and there is no bibliography. CLIP, ViTPose, RT-DETR, EmotionCLIP, FER2013, YuNet, V-JEPA 2, AST and Qwen3-Omni are named but not cited.
+- **Two descriptions are my reading, not documentation:** the VLM pipeline (inferred from the files' metadata) and `face_features_v3`, whose arrays are undocumented. Please correct them if you know better.
+- **No images of the children are included.**
+
+Nothing is committed.
+
+---
+
+
+**User**
+
+commit everything and push to master
+
+---
+
+
+**Claude**
+
+I'll check what "everything" covers first: the data and checkpoints contain children's footage-derived features and large files, which shouldn't go in git.
+
+---

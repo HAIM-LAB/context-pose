@@ -1,7 +1,8 @@
 """External context conditions shared temporal pose attention.
 
 The context is either a CLIP text embedding (`text_attention`) or the four
-binary event annotations (`annotation_attention`, `annotation_film`). An
+binary event annotations (`annotation_attention`, `annotation_film`). The
+`*_gru` / `*_bilstm` models are recurrent baselines (`baseline_models`). An
 optional face stream (`face_dim > 0`) pools frozen per-step face features over
 each region and adds its own correction, to valence only by default.
 """
@@ -12,7 +13,17 @@ import torch
 from torch import Tensor, nn
 
 INPUTS = ("all", "text", "pose", "face")
-MODELS = ("text_attention", "annotation_film", "annotation_attention")
+RECURRENT = ("gru", "bilstm")
+MODELS = (
+    "text_attention",
+    "annotation_film",
+    "annotation_attention",
+    *(
+        f"{condition}_{cell}"
+        for condition in ("text", "annotation")
+        for cell in RECURRENT
+    ),
+)
 # social_interaction, auditory_event, activity_object_change, visual_media_event
 CONTEXT_DIM = 4
 FILM_HIDDEN = 64
@@ -66,13 +77,54 @@ class ModelConfig:
             raise ValueError("text_skip must be a bool")
         if self.model not in MODELS:
             raise ValueError(f"model must be one of {MODELS}")
-        if self.model != "text_attention" and self.text_dim != CONTEXT_DIM:
+        if self.condition_key == "context" and self.text_dim != CONTEXT_DIM:
             raise ValueError(f"annotation models take {CONTEXT_DIM} context features")
 
     @property
     def condition_key(self) -> str:
         """Sample key of the conditioning vector."""
-        return "text_embedding" if self.model == "text_attention" else "context"
+        return "text_embedding" if self.model.startswith("text_") else "context"
+
+
+def check_inputs(
+    c: ModelConfig,
+    device: torch.device,
+    condition: Tensor,
+    poses: tuple[Tensor, Tensor, Tensor],
+    faces: tuple[Tensor | None, Tensor | None, Tensor | None],
+) -> None:
+    """Raise ValueError unless the inputs match the config (shape, dtype, device)."""
+    key = c.condition_key
+    pre_pose, event_pose, post_pose = poses
+    if condition.ndim != 2 or condition.shape[1] != c.text_dim:
+        raise ValueError(f"{key} must have shape [B, {c.text_dim}]")
+    batch = condition.shape[0]
+    if batch == 0:
+        raise ValueError("empty batches are not supported")
+    expected = (batch, c.steps, c.num_joints, c.joint_features)
+    for name, tensor in (
+        (key, condition),
+        ("pre_pose", pre_pose),
+        ("event_pose", event_pose),
+        ("post_pose", post_pose),
+    ):
+        if name != key and tuple(tensor.shape) != expected:
+            raise ValueError(f"{name} must have shape {expected}")
+        if tensor.dtype != torch.float32:
+            raise ValueError(f"{name} must be float32")
+        if tensor.device != device:
+            raise ValueError(f"{name} must be on the model device")
+        if not torch.isfinite(tensor).all():
+            raise ValueError(f"{name} must contain finite values")
+    if c.face_dim:
+        face_shape = (batch, c.steps, c.face_dim + 1)
+        for name, tensor in zip(FACE_KEYS, faces):
+            if tensor is None or tuple(tensor.shape) != face_shape:
+                raise ValueError(f"{name} must have shape {face_shape}")
+            if tensor.dtype != torch.float32 or not torch.isfinite(tensor).all():
+                raise ValueError(f"{name} must be finite float32")
+    elif any(tensor is not None for tensor in faces):
+        raise ValueError("face inputs need a model with face_dim > 0")
 
 
 class ContextPose(nn.Module):
@@ -145,38 +197,16 @@ class ContextPose(nn.Module):
         the steps whose face passed the quality gate.
         """
         c = self.config
-        condition, key = text_embedding, c.condition_key
-        if condition.ndim != 2 or condition.shape[1] != c.text_dim:
-            raise ValueError(f"{key} must have shape [B, {c.text_dim}]")
-        batch = condition.shape[0]
-        if batch == 0:
-            raise ValueError("empty batches are not supported")
-        expected = (batch, c.steps, c.num_joints, c.joint_features)
-        for name, tensor in (
-            (key, condition),
-            ("pre_pose", pre_pose),
-            ("event_pose", event_pose),
-            ("post_pose", post_pose),
-        ):
-            if name != key and tuple(tensor.shape) != expected:
-                raise ValueError(f"{name} must have shape {expected}")
-            if tensor.dtype != torch.float32:
-                raise ValueError(f"{name} must be float32")
-            if tensor.device != self.region_embeddings.device:
-                raise ValueError(f"{name} must be on the model device")
-            if not torch.isfinite(tensor).all():
-                raise ValueError(f"{name} must contain finite values")
         faces = (pre_face, event_face, post_face)
-        if c.face_dim:
-            face_shape = (batch, c.steps, c.face_dim + 1)
-            for name, tensor in zip(FACE_KEYS, faces):
-                if tensor is None or tuple(tensor.shape) != face_shape:
-                    raise ValueError(f"{name} must have shape {face_shape}")
-                if tensor.dtype != torch.float32 or not torch.isfinite(tensor).all():
-                    raise ValueError(f"{name} must be finite float32")
-        elif any(tensor is not None for tensor in faces):
-            raise ValueError("face inputs need a model with face_dim > 0")
-
+        check_inputs(
+            c,
+            self.region_embeddings.device,
+            text_embedding,
+            (pre_pose, event_pose, post_pose),
+            faces,
+        )
+        batch = text_embedding.shape[0]
+        condition = text_embedding
         face = self._face(faces) if c.face_dim else 0.0
         if c.inputs == "face":
             return face
@@ -244,7 +274,11 @@ class AnnotationContextPose(ContextPose):
         )
 
 
-def build_model(config: ModelConfig) -> ContextPose:
+def build_model(config: ModelConfig) -> nn.Module:
+    if config.model.endswith(RECURRENT):
+        from .baseline_models import build_baseline
+
+        return build_baseline(config)
     if config.model == "text_attention":
         return ContextPose(config)
     return AnnotationContextPose(config)
