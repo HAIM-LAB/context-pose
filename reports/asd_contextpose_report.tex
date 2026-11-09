@@ -31,13 +31,13 @@
 
 \title{ASD-ContextPose: Predicting Valence and Arousal from Environmental Context,\\Pose, Face and Scene Features\\[4pt]\large Progress report: data, architectures and results to date}
 \author{ASD-ContextPose project}
-\date{6 November 2026}
+\date{8 November 2026}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-We study whether the valence and arousal that annotators assign to short video clips of autistic children can be predicted from the environmental event (what happened), the child's movement (pose), the child's face, and whole-scene representations. Starting from a pose-based, context-conditioned attention model, we audited and repaired the pose data, built a participant-grouped cross-validation protocol, and compared transformer, FiLM, recurrent (GRU/BiLSTM) and linear models over context, pose, speed, facial-expression, EmotionCLIP and VLM-description features. The main findings are: (i) a simple lookup of the label per event-annotation combination is a strong baseline that no regression network beat; (ii) three-class accuracy is uninformative because annotator agreement is moderate (Fleiss' $\kappa \approx 0.33$) and the classes are unbalanced, so we moved to binary calls defined by annotator majority, trained on annotator vote shares; (iii) under this protocol the best valence model (\emph{V3}: event-context lookup plus a facial-expression correction) reaches 65\% balanced accuracy (AUC 0.71) against an annotator ceiling of 79\%, and the best arousal network (VLM scene-description embedding) reaches 72\% balanced accuracy (AUC 0.77) against a ceiling of 77\%; (iv) pose, with or without real-time speed, never improved on the context lookup, and a movement signal found in cross-validation failed on the held-out test set. All gains over the lookup have confidence intervals that include zero, the test split has been used once, and every candidate still needs confirmation on new labelled clips.
+We study whether the valence and arousal that annotators assign to short video clips of autistic children can be predicted from the environmental event (what happened), the child's movement (pose), the child's face, and whole-scene representations. Starting from a pose-based, context-conditioned attention model, we audited and repaired the pose data, built a participant-grouped cross-validation protocol, and compared transformer, FiLM, recurrent (GRU/BiLSTM) and linear models over context, pose, speed, facial-expression, EmotionCLIP and VLM-description features. The main findings are: (i) a simple lookup of the label per event-annotation combination is a strong baseline that no regression network beat; (ii) three-class accuracy is uninformative because annotator agreement is moderate (Fleiss' $\kappa \approx 0.33$) and the classes are unbalanced, so we moved to binary calls defined by annotator majority, trained on annotator vote shares; (iii) under this protocol the best valence model (\emph{V3}: event-context lookup plus a facial-expression correction) reaches 65\% balanced accuracy (AUC 0.71) against an annotator ceiling of 79\%, and for arousal the lookup plus a VLM scene-description embedding ranks best (72\% balanced accuracy, AUC 0.77), while the VLM embedding alone makes the best calls (76\%, AUC 0.69), against a ceiling of 77\%; (iv) in a stream ablation over pose, event annotation, VLM and face, the full model (pose + annotation + face) is worse than annotation + face on both targets (58\% and 60\% balanced accuracy), pose alone is at chance, and adding pose never improved a transformer combination (the recurrent baselines lose less to it but never reach the transformer's best); (v) the VLM embedding can replace the manual event annotation: VLM + face roughly matches V3; a movement signal found in cross-validation also failed on the held-out test set. All gains over the lookup have confidence intervals that include zero, the test split has been used once, and every candidate still needs confirmation on new labelled clips.
 \end{abstract}
 
 \tableofcontents
@@ -59,7 +59,73 @@ We study whether the valence and arousal that annotators assign to short video c
   \item The V3 candidate; EmotionCLIP, VLM scene-description and second ViT face features; pose revisited; GRU and BiLSTM baselines (Sections~\ref{sec:v3}--\ref{sec:baselines}).
 \end{enumerate}
 
-\paragraph{Headline results.} Table~\ref{tab:headline} lists the best cross-validated result for each target. Section~\ref{sec:limits} lists the caveats that apply to all of them.
+\paragraph{Main result: which streams help.} Table~\ref{tab:streams} scores the ContextPose model (Section~\ref{sec:arch}) with its input streams used alone, in pairs, in threes, and all together. The streams are pose, event annotation and face, plus the VLM scene-description embedding (Section~\ref{sec:vlm}), which can take the annotation's place as the context vector $c$. Every row uses the same folds, the votes objective and the V3 training settings (60-epoch cap).
+\begin{itemize}
+  \item Rows with the annotation stream start from the context lookup's log-odds (\code{--residual-by event\_text}).
+  \item Rows without it start from a constant offset fitted on the training folds, so no annotation reaches them. A VLM row without A therefore uses the VLM embedding \emph{instead of} the annotation.
+  \item In rows with both A and V, the annotation enters through the lookup offset and the VLM embedding is the network's context vector.
+  \item ``Event annotation only'' is the network on the four indicators alone (\code{--inputs text}); the non-learned lookup is listed with the references.
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\caption{Stream ablation of ContextPose on the binary calls (153 development clips, 5 participant-grouped folds, 5-seed ensembles, votes objective, V3 settings). P = pose with speed, A = event annotation, V = VLM scene-description embedding, F = face (FER, detector-gated). Balanced accuracy with 95\% participant-bootstrap intervals. Bold: best per column.}
+\label{tab:streams}
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{cccclcccccc}
+\toprule
+ & & & & & \multicolumn{3}{c}{Valence: positive vs not ($n{=}150$)} & \multicolumn{3}{c}{Arousal: high vs low ($n{=}148$)} \\
+\cmidrule(lr){6-8}\cmidrule(lr){9-11}
+P & A & V & F & Model & Acc. & Bal. acc. & AUC & Acc. & Bal. acc. & AUC \\
+\midrule
+\multicolumn{5}{l}{Annotators (each vs the other two)} & 79\% & 79\% & -- & 81\% & 77\% & -- \\
+\multicolumn{5}{l}{Always majority} & 67\% & 50\% & 0.50 & 78\% & 50\% & 0.50 \\
+ & \checkmark & & & Event-annotation lookup (no network) & 55\% & 53\% & 0.55 & 60\% & 68\% & 0.63 \\
+\midrule
+\checkmark & & & & Pose only & 48\% & 46\%\ci{34}{59} & 0.52 & 55\% & 53\%\ci{40}{68} & 0.57 \\
+ & \checkmark & & & Event annotation only & 58\% & 55\%\ci{42}{68} & 0.58 & 60\% & 68\%\ci{55}{79} & 0.61 \\
+ & & \checkmark & & VLM only & 49\% & 48\%\ci{36}{61} & 0.53 & 76\% & \best{76\%}\ci{66}{86} & 0.69 \\
+ & & & \checkmark & Face only & 60\% & 60\%\ci{46}{72} & 0.73 & 57\% & 65\%\ci{54}{74} & 0.69 \\
+\midrule
+\checkmark & \checkmark & & & Pose + annotation & 53\% & 54\%\ci{42}{63} & 0.60 & 61\% & 62\%\ci{50}{74} & 0.68 \\
+\checkmark & & \checkmark & & Pose + VLM & 49\% & 48\%\ci{35}{61} & 0.52 & 60\% & 60\%\ci{46}{71} & 0.55 \\
+\checkmark & & & \checkmark & Pose + face & 49\% & 50\%\ci{36}{61} & 0.58 & 59\% & 55\%\ci{41}{68} & 0.61 \\
+ & \checkmark & \checkmark & & Annotation + VLM & 63\% & 61\%\ci{50}{70} & 0.60 & 75\% & 69\%\ci{60}{81} & \best{0.75} \\
+ & \checkmark & & \checkmark & Annotation + face (V3) & 67\% & \best{65\%}\ci{53}{75} & 0.71 & 68\% & 69\%\ci{57}{79} & 0.73 \\
+ & & \checkmark & \checkmark & VLM + face & 62\% & 62\%\ci{49}{74} & \best{0.74} & 70\% & 69\%\ci{56}{79} & 0.72 \\
+\midrule
+\checkmark & \checkmark & & \checkmark & \textbf{Pose + annotation + face (full model)} & 59\% & 58\%\ci{46}{69} & 0.63 & 61\% & 60\%\ci{48}{74} & 0.69 \\
+\checkmark & & \checkmark & \checkmark & Pose + VLM + face (VLM in place of annotation) & 51\% & 49\%\ci{35}{63} & 0.58 & 64\% & 64\%\ci{52}{75} & 0.64 \\
+\checkmark & \checkmark & \checkmark & & Pose + annotation + VLM & 57\% & 58\%\ci{46}{67} & 0.59 & 61\% & 59\%\ci{47}{71} & 0.67 \\
+ & \checkmark & \checkmark & \checkmark & Annotation + VLM + face & 65\% & 64\%\ci{52}{75} & 0.70 & 73\% & 69\%\ci{56}{79} & \best{0.75} \\
+\midrule
+\checkmark & \checkmark & \checkmark & \checkmark & All four streams & 60\% & 58\%\ci{44}{70} & 0.66 & 58\% & 56\%\ci{43}{70} & 0.70 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{Valence comes from the face.} The face rows without pose reach valence AUC 0.70--0.74; every row without the face is at 0.60 or below.
+  \item \textbf{Arousal comes from the context, from either the annotation or the VLM.}
+  \begin{itemize}
+    \item The annotation-only network matches the lookup (68\%): it learns no correction to it (gain $+0\ci{+0}{+0}$).
+    \item VLM only, with no annotation, has the highest arousal balanced accuracy in the project, 76\%\ci{66}{86}, against the annotator ceiling of 77\%. But its AUC is only 0.69, so the high balanced accuracy depends on where the threshold fell, and its gain over the lookup ($+8\%\ci{-10}{+26}$) is not significant.
+    \item Combining the annotation with the VLM gives the best arousal ranking (AUC 0.75).
+  \end{itemize}
+  \item \textbf{The VLM can stand in for the manual annotation.} VLM + face roughly matches V3 without using the annotators' event labels: valence 62\% / 0.74 against 65\% / 0.71, and arousal 69\% / 0.72 against 69\% / 0.73.
+  \item \textbf{Pose never helps.} Adding pose lowers balanced accuracy, or leaves it unchanged, in all 14 comparisons (7 combinations, 2 targets). For example:
+  \begin{itemize}
+    \item face $\to$ pose + face: valence $-10$, arousal $-10$;
+    \item VLM $\to$ pose + VLM: arousal $-16$;
+    \item annotation + face $\to$ full model: valence $-7$, arousal $-9$;
+    \item annotation + VLM + face $\to$ all four: valence $-6$, arousal $-13$.
+  \end{itemize}
+  Pose alone is at or below chance. All four streams together is the only configuration significantly worse than the lookup: arousal gain $-12\%\ci{-23}{-0}$.
+  \item \textbf{The full model is not the best model.} No row with pose is best in any column. V3's gains over the lookup are $+12\%\ci{-3}{+25}$ for valence and $+1\%\ci{-9}{+9}$ for arousal; neither excludes zero.
+\end{itemize}
+
+\paragraph{Headline results.} Table~\ref{tab:headline} lists the best cross-validated result for each target across all the feature sets tried, including the later scene features. Section~\ref{sec:limits} lists the caveats that apply to all of them.
 
 \begin{table}[h]
 \centering
@@ -75,12 +141,13 @@ Call & Predictor & Accuracy & Balanced accuracy & AUC \\
  & Event-context lookup & 55\% & 53\% & 0.55 \\
  & \best{V3} (context lookup + face) & 67\% & \best{65\%}\ci{53}{75} & \best{0.71}\ci{0.56}{0.83} \\
 \midrule
-\multirow{5}{*}{\shortstack[l]{Arousal:\\high vs low}}
+\multirow{6}{*}{\shortstack[l]{Arousal:\\high vs low}}
  & Annotators (each vs the other two) & 81\% & 77\% & -- \\
  & Always majority & 78\% & 50\% & 0.50 \\
  & Event-context lookup & 60\% & 68\% & 0.63 \\
  & V3 & 68\% & 69\%\ci{57}{79} & 0.73\ci{0.62}{0.85} \\
- & \best{VLM description embedding} & 79\% & \best{72\%}\ci{63}{85} & \best{0.77}\ci{0.66}{0.87} \\
+ & \best{Lookup + VLM embedding} (150-epoch cap) & 79\% & 72\%\ci{63}{85} & \best{0.77}\ci{0.66}{0.87} \\
+ & \best{VLM embedding only}, no annotation & 76\% & \best{76\%}\ci{66}{86} & 0.69\ci{0.57}{0.83} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -533,7 +600,7 @@ Under the initial three-class scheme (cut at $\pm\frac{1}{3}$), every model's ac
 \section{Phase 2: binary calls and the V3 candidate}\label{sec:v3}
 %=====================================================================
 
-Table~\ref{tab:v3} compares regression- and votes-trained models on the binary calls. \textbf{V3} combines \code{annotation\_attention}, \code{--inputs face}, \code{--face-targets both}, the votes objective and the lookup residual. Its prediction is therefore the context lookup's log-odds plus a face correction for both targets; the pose branch is unused.
+Table~\ref{tab:v3} compares regression- and votes-trained models on the binary calls; Table~\ref{tab:streams} extends the votes rows to every stream combination. \textbf{V3} combines \code{annotation\_attention}, \code{--inputs face}, \code{--face-targets both}, the votes objective and the lookup residual. Its prediction is therefore the context lookup's log-odds plus a face correction for both targets; the pose branch is unused.
 
 \begin{table}[h]
 \centering
@@ -563,7 +630,7 @@ V: face only & 60\% & 60\% & \best{0.73} & 57\% & 65\% & 0.69 \\
   \item \textbf{V3 beats chance on both targets:} its balanced-accuracy intervals are \ci{53}{75} for valence and \ci{57}{79} for arousal.
   \item \textbf{Valence comes from the face, arousal from context.} The lookup is at chance for valence (AUC 0.55), while face models reach AUC 0.70--0.73.
   \item \textbf{The votes objective improves ranking} for the same inputs: valence AUC 0.60 $\to$ 0.71, arousal 0.66 $\to$ 0.73.
-  \item \textbf{Pose does not help.}
+  \item \textbf{Pose does not help.} Adding it to V3 (the full model, Table~\ref{tab:streams}) lowers both calls.
   \item \textbf{V3's gains over the lookup are not significant:} $+12\%\ci{-3}{+25}$ for valence and $+1\%\ci{-9}{+9}$ for arousal.
   \item \textbf{Plain accuracy does not beat the majority.} Thresholds are set for balanced accuracy, and 78\% of clips are low arousal.
 \end{itemize}
@@ -622,29 +689,32 @@ The uploaded ViT features differ from our FER embedding: their cosine similarity
 
 \begin{table}[h]
 \centering
-\caption{VLM and uploaded-ViT models (votes objective, lookup residual, V3 settings; 5-seed ensembles). Balanced accuracy / AUC.}
+\caption{VLM and uploaded-ViT models (votes objective, V3 settings; 5-seed ensembles). Balanced accuracy / AUC. All rows except the last start from the event-annotation lookup, so ``lookup + VLM'' means the annotation and the VLM together. The last row replaces the annotation with the VLM (Table~\ref{tab:streams} has every such combination).}
 \label{tab:vlm}
 \begin{tabular}{lcc}
 \toprule
 Model & Valence & Arousal \\
 \midrule
-V3: context + our FER face & \best{65\% / 0.71} & 69\% / 0.73 \\
-F3: context + uploaded ViT face & 57\% / 0.57 & 58\% / 0.70 \\
-VLM only (60-epoch cap) & 61\% / 0.60 & 69\% / 0.75 \\
-\best{VLM only (150-epoch cap)} & 62\% / 0.60 & \best{72\% / 0.77} \\
-VLM + uploaded ViT face & 58\% / 0.56 & 66\% / 0.72 \\
-VLM + our FER face & 64\% / 0.69 & 69\% / 0.75 \\
-VLM + pose with speed & 58\% / 0.59 & 59\% / 0.67 \\
-VLM + pose with speed, VLM also fed to the head & 58\% / 0.59 & 60\% / 0.67 \\
+V3: lookup + our FER face & \best{65\% / 0.71} & 69\% / 0.73 \\
+F3: lookup + uploaded ViT face & 57\% / 0.57 & 58\% / 0.70 \\
+Lookup + VLM (60-epoch cap) & 61\% / 0.60 & 69\% / 0.75 \\
+\best{Lookup + VLM (150-epoch cap)} & 62\% / 0.60 & 72\% / \best{0.77} \\
+Lookup + VLM + uploaded ViT face & 58\% / 0.56 & 66\% / 0.72 \\
+Lookup + VLM + our FER face (150-epoch cap) & 64\% / 0.69 & 69\% / 0.75 \\
+Lookup + VLM + pose with speed (150-epoch cap) & 58\% / 0.59 & 59\% / 0.67 \\
+\quad as above, VLM also fed to the head & 58\% / 0.59 & 60\% / 0.67 \\
+\midrule
+VLM only, no annotation (60-epoch cap) & 48\% / 0.53 & \best{76\%} / 0.69 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{itemize}
   \item \textbf{The uploaded ViT features carry almost no valence signal.} In linear probes every array scored valence AUC 0.48--0.55, with or without a detector-score gate, against 0.63--0.65 for our FER embedding.
-  \item \textbf{VLM-only is the best arousal network.} Its plain accuracy of 79\% is the first network result above always predicting low (78\%). The 150-epoch cap was chosen after seeing that 5 of 25 models were still improving at epoch 60, a mild selection on these clips.
-  \item \textbf{Adding faces to the VLM model} brings valence close to V3 but costs arousal.
-  \item \textbf{Adding pose with speed} makes arousal worse than the lookup (gain $-8\%\ci{-17}{+1}$) and overfits quickly (median kept epoch 11).
+  \item \textbf{Lookup + VLM ranks arousal best of all the networks} (AUC 0.77). Its plain accuracy of 79\% is the first network result above always predicting low (78\%). The 150-epoch cap was chosen after seeing that 5 of 25 models were still improving at epoch 60, a mild selection on these clips.
+  \item \textbf{The VLM alone, with no annotation,} makes the best arousal calls (76\% balanced accuracy) but ranks worse (AUC 0.69). With the face it roughly matches V3 (Table~\ref{tab:streams}).
+  \item \textbf{Adding faces to the lookup + VLM model} brings valence close to V3 but costs arousal.
+  \item \textbf{Adding pose with speed} makes arousal worse than the lookup (gain $-9\%\ci{-19}{+1}$) and overfits quickly (median kept epoch 11).
   \item \textbf{The VLM descriptions mention visible affect} (``laughing'' in 34 clips, ``smiling'' in 29, ``crying'' in 14), so part of the VLM signal is the VLM's own reading of the child's expression.
 \end{itemize}
 
@@ -652,34 +722,42 @@ VLM + pose with speed, VLM also fed to the head & 58\% / 0.59 & 60\% / 0.67 \\
 \section{Recurrent baselines}\label{sec:baselines}
 %=====================================================================
 
-The GRU and BiLSTM baselines (Figure~\ref{fig:rnn}) were run on five input sets with the same protocol (Table~\ref{tab:rnn}).
+The GRU and BiLSTM baselines (Figure~\ref{fig:rnn}) were run on the pose, annotation and face combinations of Table~\ref{tab:streams}, plus two lookup + VLM combinations, with the same protocol (Table~\ref{tab:rnn}). Streams without the event annotation again start from a constant offset rather than the lookup.
 
 \begin{table}[h]
 \centering
-\caption{Recurrent baselines vs the transformer models (balanced accuracy / AUC; 5-seed ensembles; same folds). The transformer face + context row is V3.}
+\caption{Recurrent baselines vs ContextPose by input stream (balanced accuracy \% / AUC; 5-seed ensembles; same folds). The ContextPose rows are those of Table~\ref{tab:streams} (60-epoch cap), except the three VLM rows, which are the 150-epoch runs of Table~\ref{tab:vlm}; the recurrent runs use a 150-epoch cap. In the VLM rows the annotation enters through the lookup offset. The annotation-only and annotation + VLM rows have no sequence for a recurrence to read.}
 \label{tab:rnn}
 \small
 \begin{tabular}{lcccccc}
 \toprule
  & \multicolumn{3}{c}{Valence} & \multicolumn{3}{c}{Arousal} \\
 \cmidrule(lr){2-4}\cmidrule(lr){5-7}
-Inputs & Transformer & GRU & BiLSTM & Transformer & GRU & BiLSTM \\
+Inputs & ContextPose & GRU & BiLSTM & ContextPose & GRU & BiLSTM \\
 \midrule
-Pose + context & 54 / .60 & 57 / .59 & 57 / .57 & 62 / .68 & 62 / .64 & 60 / .62 \\
-Face + context & \best{65 / .71} & 55 / .64 & 53 / .63 & 69 / .73 & 64 / .67 & 67 / .67 \\
-Pose + face + context & -- & 60 / .61 & 60 / .63 & -- & 67 / .64 & 56 / .68 \\
-VLM + face & 64 / .69 & 61 / .65 & 60 / .64 & 69 / .75 & 64 / .69 & 68 / .74 \\
-VLM + pose & 58 / .59 & 62 / .60 & 54 / .58 & 59 / .67 & 66 / .70 & 63 / .68 \\
-VLM only & 62 / .60 & -- & -- & \best{72 / .77} & -- & -- \\
+Pose only & 46 / .52 & 45 / .51 & 52 / .45 & 53 / .57 & 59 / .43 & 57 / .40 \\
+Annotation only & 55 / .58 & -- & -- & 68 / .61 & -- & -- \\
+Face only & 60 / \best{.73} & 50 / .62 & 54 / .64 & 65 / .69 & 46 / .54 & 64 / .59 \\
+\midrule
+Pose + annotation & 54 / .60 & 57 / .59 & 57 / .57 & 62 / .68 & 62 / .64 & 60 / .62 \\
+Pose + face & 50 / .58 & 62 / .65 & 57 / .59 & 55 / .61 & 56 / .50 & 57 / .55 \\
+Annotation + face & \best{65} / .71 & 55 / .64 & 53 / .63 & 69 / .73 & 64 / .67 & 67 / .67 \\
+\midrule
+Pose + annotation + face & 58 / .63 & 60 / .61 & 60 / .63 & 60 / .69 & 67 / .64 & 56 / .68 \\
+\midrule
+Annotation + VLM & 62 / .60 & -- & -- & \best{72 / .77} & -- & -- \\
+Pose + annotation + VLM & 58 / .59 & 62 / .60 & 54 / .58 & 59 / .67 & 66 / .70 & 63 / .68 \\
+Annotation + VLM + face & 64 / .69 & 61 / .65 & 60 / .64 & 69 / .75 & 64 / .69 & 68 / .74 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{itemize}
-  \item \textbf{No recurrent model reaches the best transformer result} for either target.
-  \item \textbf{The recurrent models use the face worse} (valence 53--55\% against 65\%). V3 averages only the gated face steps and adds its correction directly to the lookup; a recurrence has to learn to ignore mostly masked steps.
-  \item \textbf{With pose, the GRU overfits less than the transformer} (VLM + pose arousal 66\% against 59\%), but it still does not beat the plain lookup (68\%).
-  \item \textbf{The BiLSTM with pose + context learned almost nothing:} its median kept epoch was 2.
+  \item \textbf{No recurrent model reaches the best ContextPose result} for either target. The best recurrent results are 62\% / 0.65 for valence (GRU, pose + face) and 67\% for arousal (GRU, full model; BiLSTM, annotation + face), with AUCs of only 0.64--0.67.
+  \item \textbf{The recurrent models use the face worse.} Face only gives valence AUC 0.62--0.64 against 0.73, and annotation + face 53--55\% against 65\%. ContextPose averages only the gated face steps and adds its correction directly to the lookup; a recurrence has to learn to ignore mostly masked steps.
+  \item \textbf{Pose alone gives nothing to any architecture.} Every pose-only AUC is 0.40--0.57.
+  \item \textbf{Pose costs the recurrent models less than ContextPose.} For example, pose + face valence is 62\% (GRU) against 50\%, full-model arousal is 67\% (GRU) against 60\%, and pose + annotation + VLM arousal is 66\% (GRU) against 59\%. None of these beats the plain lookup's arousal (68\%), and their AUCs stay at or below 0.70.
+  \item \textbf{The BiLSTM with pose + annotation learned almost nothing:} its median kept epoch was 2. The other recurrent runs kept epochs 11--25 (median per configuration).
 \end{itemize}
 
 %=====================================================================
@@ -691,7 +769,8 @@ VLM only & 62 / .60 & -- & -- & \best{72 / .77} & -- & -- \\
   \item \textbf{The environmental event is the strongest single predictor}, and the only one confirmed on held-out videos, especially for arousal.
   \item \textbf{Facial expression carries a valence signal} that context does not: it appears in the linear probe, the regression face stream and the vote-trained models.
   \item \textbf{Scene-level representations (EmotionCLIP, VLM descriptions) add arousal signal} beyond the event indicators.
-  \item \textbf{Upper-body pose, including real-time speed, did not help} once context was available, and its cross-validated arousal signal failed on the test set.
+  \item \textbf{The VLM description can replace the manual event annotation.} VLM + face roughly matches annotation + face (Table~\ref{tab:streams}), so an automatic pipeline need not depend on annotators coding the event.
+  \item \textbf{Upper-body pose, including real-time speed, did not help.} Alone it is at chance, adding it never improved a stream combination (Table~\ref{tab:streams}), and its cross-validated arousal signal failed on the test set.
   \item \textbf{With 153 clips, small linear models and lookup-plus-correction designs beat deeper networks.}
 \end{enumerate}
 
@@ -709,7 +788,7 @@ VLM only & 62 / .60 & -- & -- & \best{72 / .77} & -- & -- \\
 \paragraph{Recommended next steps.}
 \begin{enumerate}
   \item \textbf{Obtain participant IDs} and regroup the folds by child.
-  \item \textbf{Collect new labelled clips} and confirm a candidate fixed in advance: V3 for valence, and the VLM-only network or the linear context + face + EmotionCLIP model for arousal. \code{train --evaluate} already supports this for networks.
+  \item \textbf{Collect new labelled clips} and confirm a candidate fixed in advance: V3 for valence, and the lookup + VLM network or the linear context + face + EmotionCLIP model for arousal. VLM + face is the candidate for a pipeline without manual event annotation. \code{train --evaluate} already supports this for networks.
   \item \textbf{Add the VLM and EmotionCLIP extraction to the package} (not just the scratchpad), and check the EmotionCLIP weights licence.
   \item \textbf{Prefer more annotations per clip} over more architecture work: the ceiling and the class counts, not the model, limit what can be shown.
 \end{enumerate}
@@ -734,7 +813,20 @@ uv run python -m asd_contextpose.crossval --device cuda --seed 1 \
   --output checkpoints/votes/V3_context_face/seed1
 \end{verbatim}
 
-\paragraph{VLM-only (arousal candidate).} The data copy \code{data/vitpose\_v3vlm} replaces \code{text\_embedding} with the VLM clip embedding (built by a scratchpad script, not yet a \code{prepare} option).
+\paragraph{Stream ablation (Table~\ref{tab:streams}).} V3's flags without \code{--inputs}, the face flags and \code{--residual-by}, plus:
+\begin{verbatim}
+pose only               --inputs pose --residual-by joint_order
+annotation only         --inputs text --residual-by event_text
+face only               --inputs face  FACE --residual-by joint_order
+pose + annotation       --inputs all  --residual-by event_text
+pose + face             --inputs pose  FACE --residual-by joint_order
+annotation + face (V3)  --inputs face  FACE --residual-by event_text
+full model              --inputs all   FACE --residual-by event_text
+  FACE = --face-dim 768 --face-dropout 0.3 --face-targets both
+\end{verbatim}
+The VLM rows use \code{data/vitpose\_face\_vlm} (VLM \code{text\_embedding}, FER face, pose with speed) with \code{--model text\_attention --text-dim 384}, \code{--inputs text} or \code{all}, and \code{--residual-by joint\_order} (VLM in place of the annotation) or \code{event\_text} (annotation + VLM). \code{joint\_order} is the same for every clip, so it gives a constant offset fitted on the training folds. In the recurrent baselines \code{--inputs face} reads the face sequence alone and \code{--inputs pose} the pose sequence (with the face sequence when \code{--face-dim} is set).
+
+\paragraph{Lookup + VLM (arousal candidate).} The data copy \code{data/vitpose\_v3vlm} replaces \code{text\_embedding} with the VLM clip embedding (built by a scratchpad script, not yet a \code{prepare} option).
 \begin{verbatim}
 --model text_attention --text-dim 384 --inputs text --epochs 150 --patience 10
   (other flags as V3, without the face flags)

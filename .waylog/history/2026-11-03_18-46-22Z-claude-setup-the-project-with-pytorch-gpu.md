@@ -5532,3 +5532,736 @@ commit everything and push to master
 I'll check what "everything" covers first: the data and checkpoints contain children's footage-derived features and large files, which shouldn't go in git.
 
 ---
+
+
+**Claude**
+
+Nothing sensitive, and master is level with origin. Running the tests once more, then committing and pushing.
+
+---
+
+
+**Claude**
+
+I committed everything and pushed it to master on `HAIM-LAB/cvpr` as `e432003`. Before committing, all 109 tests passed and lint was clean.
+
+**What went in** (7 files):
+- the GRU/BiLSTM baselines: [baseline_models.py](src/asd_contextpose/baseline_models.py) and [test_baseline_models.py](tests/test_baseline_models.py);
+- the changes to [model.py](src/asd_contextpose/model.py) and [train.py](src/asd_contextpose/train.py) that the baselines need;
+- the LaTeX report, [reports/asd_contextpose_report.tex](reports/asd_contextpose_report.tex);
+- your existing `.waylog` session history and `download.svg`, which already had changes. I checked both for secrets first and found none.
+
+**What stays local:** `dataset/`, `data/` and `checkpoints/` are gitignored, so none of the children's videos, pose or face data, or model weights went to GitHub.
+
+The scratchpad scripts didn't go in either: the EmotionCLIP extractor, the VLM and ViT data builders, and the run and summary scripts. They aren't in the repo. Tell me if you want any of them added to the package.
+
+---
+
+
+**User**
+
+recreate the results table. The first main table should contain the results of the full model (pose stream, event annotation stream and face stream) and also each stream individual and then a combination of the different streams. Then generate the other tables as well
+
+---
+
+
+**User**
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+<system-reminder>
+<tools-used-before-summary>Agent, AskUserQuestion, Bash, Edit, Grep, PowerShell, Read, SubagentHandback, TaskStop, ToolSearch, WebFetch, Write</tools-used-before-summary>
+</system-reminder>
+Summary:
+1. Primary Request and Intent:
+   - **Report EmotionCLIP results.** Done.
+   - **Train on the new features:** "I have upload two new data features, vlm_embeddings which are embeddings of textual descriptions of environment context from a vlm and face_features_v3 which are features from models we run on the clips. use these features to train the model and report the results. Train on the vit model face features for now". Done.
+   - **"how long are you training for?"**, then **"yes do that"** (rerun VLM-only with a 150-epoch cap). Done.
+   - **"yes"** (VLM + our FER face combined model). Done.
+   - **"how did you use velocity to improve arousal"**, then **"do that"** (VLM + pose with speed). Done.
+   - **"we want to run the experiments on two baseline models, gru and bilstm. implement them in baseline_models.py and run the experiments on them"**. Done.
+   - **"how far?" / "how far"**: progress updates.
+   - **"write a detailed report of what we've done so far, the results and the architectures in latex"**. Done: `reports/asd_contextpose_report.tex`.
+   - **"commit everything and push to master"**. Done: commit e432003 pushed to origin/master.
+   - Standing constraints from earlier:
+     - Do not kill the hwm run (it has finished).
+     - Images contain children's faces: keep visuals local and never publish them.
+     - Commit only when asked.
+     - The test set has been used once: no further selection on it; candidates need confirming on new labelled clips.
+
+2. Key Technical Concepts:
+   - **Environment:** uv project, Python 3.13, torch cu132, RTX 5090, Windows with Git Bash and PowerShell. Scratchpad: `C:\Users\hfansah\AppData\Local\Temp\claude\c--Users-hfansah-workspace-cvpr\19e02c99-2ff8-4e41-88cb-44b4847649ed\scratchpad\`.
+   - **Protocol:** participant (video)-grouped 5-fold cross-validation over 153 development clips. Votes objective (BCE on annotator vote shares) with a residual on the lookup log-odds (`--residual-by event_text`). Binary calls: valence positive vs not (n=150, 100 positive), arousal high vs low (n=148, 33 high). 5-seed ensembles; participant-bootstrap CIs.
+   - **V3 settings:** `--num-joints 11 --joint-features 4 --lr 3e-4 --width 64 --dropout 0.3 --head-dropout 0.3 --weight-decay 0.05 --augment --objective votes --residual-by event_text`; 60 epochs / patience 10 for V3; a 150-epoch cap for the newer runs.
+   - **VLM_embeddings:** per clip, `clip_embedding` [384] (MiniLM all-MiniLM-L6-v2 of Qwen3-Omni window descriptions, L2-normalised mean), plus `embeddings` [W,384], `descriptions`, `labels` (model predictions, mostly unreviewed: 134 needs_review, 51 unreviewed).
+   - **face_features_v3/vit:** per-frame arrays `frame`, `time_s`, `face_found`, `det_score`, `crop_box`, `fps`, `backbone_cls` [768], `backbone` [768], `contrast` [64], `eq_embed` [768], `eq_hidden` [128]. One clip has no feature keys (no face anywhere). Cosine with our FER embedding is 0.17. Face found in 64% of frames.
+   - **Recurrent baselines:** 96-step sequence; each step is [region one-hot; pose J·F; face→32 × mask; mask] → Linear+GELU → dropout → GRU(W) or BiLSTM(W/2×2) → concatenated with W_c c → MLP(2W→W/2→2).
+
+3. Files and Code Sections:
+   - **src/asd_contextpose/baseline_models.py** (new; committed). Contains `RecurrentBaseline(nn.Module)`, `AnnotationRecurrentBaseline` (forward takes `context` first), `build_baseline(config)` and `REGIONS = 3`.
+     - `use_pose = config.inputs in ("all","pose")`. It raises "leaves no sequence: add face_dim" if there is no pose and no face.
+     - Layers:
+       - `face_encoder`: LN → Linear(face_dim, FACE_HIDDEN) → GELU.
+       - `step_projection`: Linear(step_width, width) + GELU, followed by `step_dropout`.
+       - `rnn`: `nn.GRU(width,width)`, or `nn.LSTM(width, width//2, bidirectional=True)`.
+       - `text_projection`, then `head` Linear(2W, W/2) → GELU → Linear(W/2, 2).
+     - Forward:
+       - Calls `check_inputs(c, self.text_projection.weight.device, text_embedding, poses, faces)`.
+       - Applies face dropout to the mask.
+       - `summary = torch.cat(tuple(hidden), -1)`.
+       - Zeroes `text` for inputs pose/face.
+       - Returns `head(dropout(cat(summary, text)))`.
+   - **src/asd_contextpose/model.py** (modified; committed):
+     - Constants:
+       - `RECURRENT = ("gru","bilstm")`.
+       - `MODELS = ("text_attention","annotation_film","annotation_attention", *(f"{condition}_{cell}" for condition in ("text","annotation") for cell in RECURRENT))`.
+     - Config properties: `condition_key` returns `"text_embedding" if self.model.startswith("text_") else "context"`, and the annotation check is now `if self.condition_key == "context" and self.text_dim != CONTEXT_DIM`.
+     - New module function `check_inputs(c, device, condition, poses, faces)`, holding the validation previously inside `ContextPose.forward`, with the same error messages. `ContextPose.forward` now calls it.
+     - `build_model`: if `config.model.endswith(RECURRENT)`, it does a local import from `.baseline_models import build_baseline`.
+     - The module docstring mentions the `*_gru`/`*_bilstm` baselines.
+   - **src/asd_contextpose/train.py** (modified; committed): the `--model` help mentions the baselines, and the default text_dim rule is now `if args.text_dim is None and not args.model.startswith("text_")`.
+   - **tests/test_baseline_models.py** (new; committed). Tests:
+     - forward/backward;
+     - annotation baselines need 4 features;
+     - sequence order matters;
+     - ablations ignore dropped inputs;
+     - masked face steps are ignored;
+     - a sequence is required;
+     - CLI train/evaluate for both cells.
+
+     109 tests pass; ruff check and format are clean.
+   - **reports/asd_contextpose_report.tex** (new; committed; not compiled because no TeX is installed). Contents:
+     - Packages include geometry, lmodern, amsmath/amssymb, graphicx, booktabs, tabularx, multirow, tikz (positioning, arrows.meta, fit, calc), enumitem, caption, hyperref. Macros: `\code`, `\best`, `\ci`.
+     - Sections: Overview with the headline table; Data; Evaluation protocol (lookup table, metrics, fold-arrangements paragraph, held-out test); Architectures (ContextPose equations and TikZ figure, residual, face stream, objectives, recurrent figure, linear probes, training settings); Phase 1 regression; Face/audio/video; Why accuracy fails; V3; EmotionCLIP; VLM and the second face model; Recurrent baselines; Discussion and limitations; Appendix on reproduction.
+     - The TikZ figures are wrapped in `\resizebox{\linewidth}{!}{...}`. The source checks passed (braces, environments, math, refs, non-ASCII).
+   - **Scratchpad scripts:**
+     - `build_v3_data.py` (`--face-key`, default `backbone_cls`; nearest frame by time, tolerance 0.1 s; `face_found` mask; zero features if the keys are missing; `text_embedding` set to the VLM `clip_embedding`; output `data/vitpose_v3vlm`).
+     - `v3vlm_runs.sh`, `v3vlm_probe.py` (output `v3vlm_probe.tsv`), `v3_keys_probe.py` (output `v3_keys_probe.tsv`), `baseline_runs.sh`, `tex_check.py`, `transcript_texts.md`.
+     - Summary roots `v3vlm_summary_root`, `baseline_summary_root`, built for `summarize_votes.py`.
+   - **Data:** `data/vitpose_v3vlm` (VLM text + uploaded ViT face), `data/vitpose_face_vlm` (VLM text + our FER detector-gated face, built inline).
+   - **Checkpoints:**
+     - `checkpoints/v3vlm/{F3_context_vitface,L0_vlm,L3_vlm_vitface}`;
+     - `checkpoints/v3vlm_e150/{L0_vlm_e150,LF_vlm_oldface_e150,LP_vlm_pose_speed_e150,LPs_vlm_pose_speed_skip_e150}`;
+     - `checkpoints/baselines/{gru,bilstm}_{P_pose_context,F_face_context,PF_pose_face_context,VF_vlm_face,VP_vlm_pose}`.
+
+4. Errors and fixes:
+   - **Time-gap assertion failure** on 172_v_Spinning_59 (about 9 fps, gap 0.05 s): relaxed the tolerance to 0.1.
+   - **KeyError `backbone_cls`** in one file with no face: used zero features and asserted the mask is empty.
+   - **sklearn missing:** used `uv run --with scikit-learn`.
+   - **FileNotFoundError** from passing a `/c/...` path to Python: used the Windows path.
+   - **Heredoc backslash mangling:** wrote scripts to files instead.
+   - **Moved validation block mis-indented:** dedented it with a script.
+   - **ruff format wanted changes** in model.py, baseline_models.py and the test: ran `ruff format`.
+   - **False "unbalanced }" from tex_check:** `\\` followed by `{` was misread; fixed by replacing `\\\\` before stripping `\{`.
+   - **Missing graphicx for resizebox:** added `\usepackage{graphicx}`.
+
+5. Problem Solving (key results, cross-validated; balanced accuracy / AUC):
+   - **Uploaded ViT face:**
+     - F3 (context + ViT face): valence 57%/0.57, arousal 58%/0.70.
+     - All keys and gates give a linear valence AUC of 0.48–0.55, against 0.63–0.65 for our FER face.
+   - **VLM models:**
+     - L0 VLM-only, 60-epoch cap: valence 61%/0.60, arousal 69%/0.75. With the 150-epoch cap: valence 62%/0.60, arousal 72% [63,85] / 0.77, accuracy 79%.
+     - L3 VLM + ViT face: 58%/0.56, 66%/0.72.
+     - LF VLM + our face: 64%/0.69, 69%/0.75.
+     - LP VLM + pose with speed: 58%/0.59, 59%/0.67. LPs (with `--text-skip`): 58%/0.59, 60%/0.67.
+   - **Linear probe:** context + VLM + ViT face reached 75%/0.80 for arousal at PCA 8, but only 66%/0.73 at PCA 16, so it is fragile.
+   - **References:** V3 valence 65%/0.71, arousal 69%/0.73. Lookup 53%/0.55 and 68%/0.63.
+   - **Recurrent baselines:** none beat the best transformer results. They use the face worse (valence 53–55%). For VLM + pose, the GRU's arousal is 66% vs 59% for the transformer. The BiLSTM with pose + context has median kept epoch 2.
+   - **VLM descriptions mention affect:** laugh 34 clips, smil 29, cry 14.
+
+6. All user messages:
+   - "I have upload two new data features, vlm_embeddings which are embeddings of textual descriptions of environment context from a vlm and face_features_v3 which are features from models we run on the clips. use these features to train the model and report the results. Train on the vit model face features for now"
+   - "how long are you training for?"
+   - "yes do that"
+   - "yes"
+   - "how did you use velocity to improve arousal"
+   - "do that"
+   - "we want to run the experiments on two baseline models, gru and bilstm. implement them in baseline_models.py and run the experiments on them"
+   - "how far?"
+   - "how far"
+   - "write a detailed report of what we've done so far, the results and the architectures in latex"
+   - "commit everything and push to master"
+   - Earlier standing constraints:
+     - do not kill the hwm run;
+     - children's faces: keep visuals local and never publish;
+     - commit only when asked;
+     - the test set has been used once, so no further selection on it.
+
+7. Pending Tasks:
+   - None explicitly outstanding.
+   - Previously offered but not requested:
+     - final VLM-only models and two-checkpoint-set `--evaluate`;
+     - a `prepare` option for the VLM embedding;
+     - a README baselines section;
+     - moving the EmotionCLIP extractor into the package (the weights licence needs checking);
+     - participant IDs and new labelled clips (on the user's side).
+
+8. Current Work:
+   - **Last request:** "commit everything and push to master".
+   - **Checks before committing:**
+     - `.gitignore` excludes checkpoints/, data/ and dataset/.
+     - The diffs (including the tracked `.waylog` history and `download.svg`) contained no secrets.
+     - master was level with origin.
+   - **Verification:** 109 tests passed and ruff was clean.
+   - **Commit:** `git add -A`, then committed:
+     - .waylog history, download.svg;
+     - reports/asd_contextpose_report.tex;
+     - src/asd_contextpose/baseline_models.py, model.py, train.py;
+     - tests/test_baseline_models.py.
+   - **Commit message:** "Add GRU/BiLSTM baselines and project report" with a bullet body and "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>".
+   - **Push:** commit e432003 succeeded: `0eb22b6..e432003  master -> master` to https://github.com/HAIM-LAB/cvpr.git. The result has not yet been reported to the user.
+
+9. Optional Next Step:
+   - Report to the user that the commit and push are done.
+   - Contents: commit e432003 on master pushed to origin. It contains the baselines code, tests, the model.py/train.py changes, the LaTeX report, and the user's .waylog history and download.svg changes. Data, dataset and checkpoints stayed out of git because they are gitignored.
+   - No further work unless the user asks.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: C:\Users\hfansah\.claude\projects\c--Users-hfansah-workspace-cvpr\19e02c99-2ff8-4e41-88cb-44b4847649ed.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
+
+The messages after this summary are the most recent messages from before compaction, kept verbatim. The summary was written without seeing them, so something it says has not happened yet may already have happened in them.
+
+---
+
+
+**Claude**
+
+While that runs, I'll set up the summary roots that will hold the stream-ablation results.
+
+---
+
+
+**Claude**
+
+Each existing summary root holds copies of the seed folders. Rather than copy numbers by hand again, I'll write one script that reads every checkpoint directory and prints the LaTeX rows.
+
+---
+
+
+**Claude**
+
+The first seed finished cleanly. The `folds` field in the report is a count, not a list, so the epoch lookup in my script was wrong. Checking `per_fold` instead:
+
+---
+
+
+**Claude**
+
+The table script is ready. The training runs are going in the background (about 30 minutes for 50 runs), and I'll generate the tables from the checkpoints once they finish.
+
+---
+
+
+**Claude**
+
+The runs are in progress: 50 training runs, about 30 minutes in all. I'm watching them for failures. When they finish I'll generate every results table from the checkpoints and rewrite the report around the new main table.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>bswc2h30f</task-id>
+<summary>Monitor event: "stream ablation runs: config completions and failures"</summary>
+<event>18:04 checkpoints/streams/T_P_pose done</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+
+**Claude**
+
+Pose-only is done, the first of 10 configurations. The rest are still training.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>bswc2h30f</task-id>
+<summary>Monitor event: "stream ablation runs: config completions and failures"</summary>
+<event>18:06 checkpoints/streams/T_A_context done</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+
+**Claude**
+
+Annotation-only is done too, 2 of 10.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>bswc2h30f</task-id>
+<summary>Monitor event: "stream ablation runs: config completions and failures"</summary>
+<event>18:09 checkpoints/streams/T_PF_pose_face done</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+
+**Claude**
+
+Pose + face is done, 3 of 10. The full model is training now.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>bswc2h30f</task-id>
+<summary>Monitor event: "stream ablation runs: config completions and failures"</summary>
+<event>18:12 checkpoints/streams/T_PAF_full done</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+
+**Claude**
+
+The transformer runs are all finished, so I can generate the main table now. The script will stop with an error at the recurrent rows because those runs are still going.
+
+---
+
+
+**Claude**
+
+Table 1 is in the report. Five recurrent configurations are still running. When they finish I'll fill in the recurrent stream table and re-check the other tables against the checkpoints.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>bswc2h30f</task-id>
+<summary>Monitor event: "stream ablation runs: config completions and failures"</summary>
+<event>18:13 checkpoints/baselines/gru_Po_pose done</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+
+**Claude**
+
+That configuration finished in about a minute, which is suspiciously fast for 5 seeds. I'll check it actually trained.
+
+---
+
+
+**Claude**
+
+The runs are real. The pose-only GRU barely learns anything: it keeps early epochs and scores about 50%. Four recurrent configurations are left.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>bswc2h30f</task-id>
+<summary>Monitor event: "stream ablation runs: config completions and failures"</summary>
+<event>18:16 checkpoints/baselines/gru_Fo_face done</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+
+**Claude**
+
+The face-only GRU is done. Three recurrent configurations are left.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>bswc2h30f</task-id>
+<summary>Monitor event: "stream ablation runs: config completions and failures"</summary>
+<event>18:18 checkpoints/baselines/gru_PFo_pose_face done</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+
+**Claude**
+
+The GRU stream runs are all done. Three BiLSTM configurations are left.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>bswc2h30f</task-id>
+<summary>Monitor event: "stream ablation runs: config completions and failures"</summary>
+<event>18:20 checkpoints/baselines/bilstm_Po_pose done</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+
+**Claude**
+
+The pose-only BiLSTM is done. Two configurations are left.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>bswc2h30f</task-id>
+<summary>Monitor event: "stream ablation runs: config completions and failures"</summary>
+<event>18:23 checkpoints/baselines/bilstm_Fo_face done</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+
+**Claude**
+
+The face-only BiLSTM is done. One configuration is left: the BiLSTM on pose + face.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>bzmutcko3</task-id>
+<tool-use-id>toolu_016JQzNav9q4EXKia2D1ujL2</tool-use-id>
+<output-file>C:\Users\hfansah\AppData\Local\Temp\claude\c--Users-hfansah-workspace-cvpr\19e02c99-2ff8-4e41-88cb-44b4847649ed\tasks\bzmutcko3.output</output-file>
+<status>completed</status>
+<summary>Background command "bash "C:/Users/hfansah/AppData/Local/Temp/claude/c--Users-hfansah-workspace-cvpr/19e02c99-2ff8-4e41-88cb-44b4847649ed/scratchpad/stream_runs.sh" &gt; "C:/Users/hfansah/AppData/Local/Temp/claude/c--Users-hfansah-workspace-cvpr/19e02c99-2ff8-4e41-88cb-44b4847649ed/scratchpad/stream_runs.out" 2&gt;&amp;1" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+
+**Claude**
+
+I've rebuilt the results tables in [reports/asd_contextpose_report.tex](reports/asd_contextpose_report.tex). The structure checks on the LaTeX source pass, but I couldn't compile it because there's no TeX installed here. Nothing is committed.
+
+**Table 1, the main table.** It now opens the report, in the Overview. It shows the full model (pose + event annotation + face), each stream alone, and each pair. Each row gives accuracy, balanced accuracy with a 95% interval, and AUC for both calls. The reference rows are the annotators, always guessing the majority, and the lookup.
+
+| Streams | Valence bal. acc. / AUC | Arousal bal. acc. / AUC |
+|---|---|---|
+| Pose only | 46% / 0.52 | 53% / 0.57 |
+| Annotation only | 55% / 0.58 | 68% / 0.61 |
+| Face only | 60% / **0.73** | 65% / 0.69 |
+| Pose + annotation | 54% / 0.60 | 62% / 0.68 |
+| Pose + face | 50% / 0.58 | 55% / 0.61 |
+| **Annotation + face (V3)** | **65%** / 0.71 | **69% / 0.73** |
+| Full model (all three) | 58% / 0.63 | 60% / 0.69 |
+
+- **The full model is not the best model.** Adding pose to V3 costs 7 points of valence and 9 of arousal.
+- **Each target has one useful stream.** Valence comes from the face. Arousal comes from the annotation, and the annotation-only network learns no correction on top of the lookup.
+- **Pose helps nowhere.** Alone it is at chance, and it lowered every combination it joined.
+
+To fill the table I ran 4 new transformer configurations, 5 seeds each, with the same settings and folds as V3. Rows without the annotation stream start from a constant offset rather than the lookup, so no context leaks into them.
+
+**Recurrent table.** It now uses the same stream rows, with the two VLM rows added, and compares ContextPose, the GRU and the BiLSTM. That took 6 new recurrent configurations (pose only, face only, and pose + face for each cell).
+- No recurrent model reaches ContextPose's best on either target.
+- The recurrent models use the face worse: face-only valence AUC is 0.62–0.64, against 0.73.
+- Pose costs the recurrent models less than it costs the transformer. The GRU on pose + face reaches 62% valence, against 50% for ContextPose. The abstract states this exception instead of claiming pose always hurts.
+- The recurrent rows use a 150-epoch cap and the ContextPose stream rows use 60, so the two columns aren't trained identically. The caption says so.
+
+**The other tables.** Every number in the objective comparison, VLM, headline and recurrent tables matches what the checkpoints give. There was one text error: the VLM + pose arousal gain should be −9 [−19, +1], not −8 [−17, +1]. The −8 belonged to the variant that also feeds the VLM embedding to the head. I fixed it.
+
+**Other report changes.** I updated the abstract, the V3 section and the discussion to cite Table 1. I also added the stream-ablation flags to the reproduction appendix and changed the date to 8 November.
+
+This ablation compares configurations on the same cross-validation folds again, so it is more selection on those clips; it doesn't touch the test set. The script that generates the tables from the checkpoints is at `C:\Users\hfansah\AppData\Local\Temp\claude\c--Users-hfansah-workspace-cvpr\19e02c99-2ff8-4e41-88cb-44b4847649ed\scratchpad\make_tables.py`.
+
+---
+
+
+**User**
+
+where are the other tables?
+
+---
+
+
+**Claude**
+
+They're all in the same file, [reports/asd_contextpose_report.tex](reports/asd_contextpose_report.tex), in report order. Only Table 1 and the recurrent table are new; I kept the rest and checked their numbers against the checkpoints.
+
+**Results on the binary calls (phase 2):**
+- [Table 1, stream ablation](reports/asd_contextpose_report.tex#L68): new main table, in the Overview.
+- [Headline best results](reports/asd_contextpose_report.tex#L113): in the Overview.
+- [Regression vs votes objective (V3)](reports/asd_contextpose_report.tex#L587): Section 7. Checked.
+- [EmotionCLIP](reports/asd_contextpose_report.tex#L633): Section 8. These are linear-probe numbers, so `make_tables.py` doesn't cover them; they are unchanged.
+- [VLM and uploaded ViT face](reports/asd_contextpose_report.tex#L672): Section 9. Checked.
+- [Recurrent baselines by stream](reports/asd_contextpose_report.tex#L706): Section 10. Rebuilt.
+
+**Earlier sections (regression phase and data), unchanged:**
+- [Gap filling](reports/asd_contextpose_report.tex#L173): Section 2.
+- [Context lookup](reports/asd_contextpose_report.tex#L236): Section 3.
+- [Architecture comparison](reports/asd_contextpose_report.tex#L398): Section 5.
+- [Residual and speed channel](reports/asd_contextpose_report.tex#L432): Section 5.
+- [Held-out test](reports/asd_contextpose_report.tex#L467): Section 5.
+- [Frozen media features](reports/asd_contextpose_report.tex#L496): Section 6.
+- [Face stream, regression](reports/asd_contextpose_report.tex#L532): Section 6.
+
+These earlier tables use a different metric (MAE and CCC, not balanced accuracy) and the older folds, so they can't share Table 1's format without re-running everything.
+
+If by "the other tables" you meant tables in the same format as Table 1, I can lay out the other feature sets that way. One option is the stream ablation with the VLM embedding in place of the event annotation; another is splitting the recurrent results into one table per architecture. Both would need about 4–6 more configurations, roughly 15–20 minutes of training each. Tell me which you want.
+
+---
+
+
+**User**
+
+the annotation stream can also be replaced with a vlm but you didnt add that to the table
+
+---
+
+
+**Claude**
+
+While those train, I'll add the VLM rows to the table script.
+
+---
+
+
+**Claude**
+
+The script now covers all 15 combinations of pose, annotation, VLM and face. I'll fill in Table 1 when the runs finish, in about 25 minutes. I'll also relabel the VLM rows in the recurrent and VLM tables as annotation + VLM, since those runs started from the lookup too.
+
+---
+
+
+**User**
+
+<task-notification>
+<task-id>bk7loomkp</task-id>
+<tool-use-id>toolu_016AtUQ4y8VqBXfHnSEKPQu8</tool-use-id>
+<output-file>C:\Users\hfansah\AppData\Local\Temp\claude\c--Users-hfansah-workspace-cvpr\19e02c99-2ff8-4e41-88cb-44b4847649ed\tasks\bk7loomkp.output</output-file>
+<status>completed</status>
+<summary>Background command "bash "C:/Users/hfansah/AppData/Local/Temp/claude/c--Users-hfansah-workspace-cvpr/19e02c99-2ff8-4e41-88cb-44b4847649ed/scratchpad/vlm_stream_runs.sh" &gt; "C:/Users/hfansah/AppData/Local/Temp/claude/c--Users-hfansah-workspace-cvpr/19e02c99-2ff8-4e41-88cb-44b4847649ed/scratchpad/vlm_stream_runs.out" 2&gt;&amp;1" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+
+**Claude**
+
+I checked all 14 pose comparisons against the numbers. Now updating the headline table, relabelling the VLM rows elsewhere, and revising the abstract, discussion and appendix:
+
+---
+
+
+**Claude**
+
+Table 1 now includes the VLM as a fourth stream. It covers all 15 combinations of pose, annotation, VLM and face, grouped as single streams, pairs, threes and all four.
+
+There was a catch in the earlier VLM results. Every previous VLM run started from the event-annotation lookup, so what the report called "VLM only" was really annotation + VLM. I ran the real substitution, with no lookup and no annotation, plus the missing annotation + VLM combinations: 7 new configurations at Table 1's settings, with no failures.
+
+| Streams | Valence bal. acc. / AUC | Arousal bal. acc. / AUC |
+|---|---|---|
+| VLM only (no annotation) | 48% / 0.53 | **76%** [66, 86] / 0.69 |
+| Pose + VLM | 48% / 0.52 | 60% / 0.55 |
+| VLM + face | 62% / **0.74** | 69% / 0.72 |
+| Annotation + VLM | 61% / 0.60 | 69% / **0.75** |
+| Full model with VLM in place of annotation | 49% / 0.58 | 64% / 0.64 |
+| Pose + annotation + VLM | 58% / 0.59 | 59% / 0.67 |
+| Annotation + VLM + face | 64% / 0.70 | 69% / **0.75** |
+| All four streams | 58% / 0.66 | 56% / 0.70 |
+
+- **The VLM can replace the manual annotation.** VLM + face roughly matches V3 (annotation + face) without using the annotators' event labels: 62% / 0.74 against 65% / 0.71 for valence, and 69% / 0.72 against 69% / 0.73 for arousal.
+- **VLM alone makes the best arousal calls in the project,** 76% against an annotator ceiling of 77%. Its AUC is only 0.69, though, so the result depends on where the threshold fell, and its gain over the lookup (+8 [−10, +26]) isn't significant.
+- **Pose never helps.** Adding it lowered balanced accuracy or left it unchanged in all 14 comparisons. All four streams together is the only configuration significantly worse than the lookup (arousal −12 [−23, −0]).
+- **Caution:** these 7 runs are more comparisons on the same cross-validation folds, so the best rows here are optimistic until confirmed on new labelled clips.
+
+**Other changes to the report:**
+- **Headline table:** added the VLM-only arousal row.
+- **VLM table:** relabelled its rows "lookup + VLM" and added the VLM-only row.
+- **Recurrent table:** the VLM rows are now labelled annotation + VLM.
+- **Text:** the abstract and discussion now include the finding that the VLM can replace the annotation. VLM + face is listed as the next-step candidate for a pipeline without manual event annotation. The appendix has the flags for the new runs.
+
+The structure checks on the LaTeX source pass, but I still couldn't compile it because there's no TeX installed. Nothing is committed.
+
+---
+
+
+**User**
+
+where is pose + annotations + face???
+
+---
+
+
+**Claude**
+
+It's in Table 1, in the block of three-stream rows, but it was labelled "Full model: pose + annotation + face", which made it easy to miss. Its results: valence 58% [46, 69] balanced accuracy, AUC 0.63; arousal 60% [48, 74], AUC 0.69.
+
+I've renamed it so it reads like the other rows, and renamed its VLM counterpart to match:
+
+---
+
+
+**Claude**
+
+Pose + annotation + face is now labelled **Pose + annotation + face (full model)** and set in bold, in the three-stream block of Table 1 ([reports/asd_contextpose_report.tex:97](reports/asd_contextpose_report.tex#L97)). The row next to it is now "Pose + VLM + face (VLM in place of annotation)".
+
+The full model is worse than annotation + face (V3) on both targets:
+
+| | Valence bal. acc. / AUC | Arousal bal. acc. / AUC |
+|---|---|---|
+| Pose + annotation + face (full model) | 58% / 0.63 | 60% / 0.69 |
+| Annotation + face (V3) | 65% / 0.71 | 69% / 0.73 |
+
+It's also in the recurrent table as "Pose + annotation + face". There the GRU scores 60% / 0.61 for valence and 67% / 0.64 for arousal, and the BiLSTM 60% / 0.63 and 56% / 0.68.
+
+---
+
+
+**User**
+
+have you updated the tex file with the new table?
+
+---
+
+
+**Claude**
+
+Yes, the new table is saved in [reports/asd_contextpose_report.tex](reports/asd_contextpose_report.tex#L68) as Table 1, starting at line 68. It has the P / A / V / F columns and all 15 stream combinations. The full-model row is at [line 98](reports/asd_contextpose_report.tex#L98) and the all-four-streams row at [line 103](reports/asd_contextpose_report.tex#L103).
+
+The other updates in this session are in the same file: the headline, VLM and recurrent tables, plus the abstract, discussion and appendix.
+
+The changes aren't committed, so the copy on GitHub is still the old report. I also haven't compiled it, because no TeX is installed. If you want them pushed, I can commit and push to master.
+
+---
+
+
+**User**
+
+create another .tex with just the tables and their captions. make sure the captions contain enough information about the table
+
+---
+
+
+**Claude**
+
+I'll pull every table out of the current report so the new file copies them exactly.
+
+---
+
+
+**Claude**
+
+I have every table. Before writing captions, one detail needs checking: what the "(65–79%)" range in the EmotionCLIP table means.
+
+---
+
+
+**Claude**
+
+Written for: readers who see the tables without the report, such as collaborators or co-authors.
+
+I've created [reports/asd_contextpose_tables.tex](reports/asd_contextpose_tables.tex). It has all 13 tables from the report, in the same order, each with a caption that can be read on its own. The structure checks on the LaTeX source pass, but I couldn't compile it because there's no TeX installed here.
+
+**What each caption covers**, so the table can be read without the report:
+- **Setup:** the data and protocol (153 development clips, video-grouped 5-fold cross-validation) and which folds were used: the original folds for the earlier regression tables, the deduplicated ones after that.
+- **Targets:** what is predicted, including the binary call definitions and class counts (valence n=150 with 100 positive; arousal n=148 with 33 high), or the regression label scale.
+- **Rows:** what each row or stream means. P/A/V/F are defined in full. The captions also say which rows start from the annotation lookup and which from a constant offset, which decides whether "VLM" means alongside or in place of the annotation.
+- **Metrics:** balanced accuracy, AUC, MAE, CCC and gain, how each is computed and which direction is better. They also say what the brackets are (95% participant-bootstrap intervals) and that thresholds are never set on the scored fold.
+- **Settings and reading aids:** training settings or epoch caps where rows differ, what bold marks, and the reference rows (annotator ceiling, always majority, lookup).
+
+The tables themselves are copied unchanged from the report. Two tables had no `\label` in the report (the gap-fill table and the lookup table), so I gave them labels here.
+
+Both .tex files are uncommitted.
+
+---
+
+
+**User**
+
+This is the final tex I'm submitting. Now for each table (4 in total), make the caption summarized and succinct and add a separate description of what the table entails below it
+
+---
+
+
+**Claude**
+
+The shell mangled the backslashes again, so I'll write the script to a file instead.
+
+---
+
+
+**Claude**
+
+That reproduces your file: the same four tables are active. Now the short captions and the descriptions under each table:
+
+---
+
+
+**Claude**
+
+Written for: readers of your submitted results document.
+
+`test.tex` wasn't anywhere in the workspace, so I saved your submitted file as [reports/test.tex](reports/test.tex), with the same nine tables commented out. I then rewrote the four active tables. The structure checks on the LaTeX source pass, but I couldn't compile it because there's no TeX installed here.
+
+**Captions** are now one or two lines: what the table is, how it was evaluated, and the abbreviations or how to read a cell. For example, Table 1's caption is "Stream ablation of ContextPose on the binary valence and arousal calls (cross-validated, 5-seed ensembles). P = pose, A = event annotation, V = VLM scene description, F = face."
+
+**Descriptions** are a new block under each table, inside the float so it stays on the same page. It is headed "Description." in footnote size and uses the new `\tabledesc{...}` macro in the preamble. Each description covers:
+- **Protocol and targets:** data, folds, objective, the binary calls or regression labels, and ensembling.
+- **Row definitions:** the streams (P/A/V/F), the models, configurations or architectures, and which rows start from the lookup and which from a constant offset.
+- **Settings:** training settings or epoch caps where rows differ.
+- **Metrics:** how each is computed, which direction is better, what the brackets and gain mean, and what bold and "--" mark.
+- **Findings:** the main things to read from the table.
+
+The tables themselves are unchanged. The descriptions cross-reference only tables that are still active: the speed table points to Table 2 (the architecture comparison) and the recurrent table to Table 1. I'd remove one cross-reference that pointed at the commented-out VLM table.
+
+---
+
+
+**User**
+
+tables 1 and 2 are cutoff from the right
+
+---
+
+
+**Claude**
+
+I'll scale both tables to the text width, and shorten a few long row labels so they don't shrink much.
+
+---
+
+
+**Claude**
+
+I've changed [reports/test.tex](reports/test.tex) so Tables 1 and 2 fit within the page margins. I can't compile it here, so please check them in your PDF. The source checks pass.
+
+- **Scaling:** I added the `graphicx` package and wrapped both tables in `\resizebox{\linewidth}{!}{...}`, which scales each table down to the text width.
+- **Shorter labels:** so the tables shrink less and the text stays readable, I shortened four row labels:
+  - Table 1: "Event-annotation lookup (no network)" is now "Annotation lookup (no network)".
+  - Table 1: "Pose + annotation + face (full model)" is now "Pose + annot. + face (full model)".
+  - Table 1: "Pose + VLM + face (VLM in place of annotation)" is now "Pose + VLM + face". The description under the table already explains that V replaces A in rows without A.
+  - Table 2: "Context lookup (median per combination)" is now "Context lookup". The description already defines the lookup.
+
+No numbers changed. Tables 3 and 4 fit already, so I left them alone.
+
+If Table 1's text now looks too small, the next step is to drop its two plain-accuracy columns, which would leave balanced accuracy and AUC per target.
+
+---
