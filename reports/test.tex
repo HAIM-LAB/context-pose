@@ -360,28 +360,42 @@ S1: speed, no regularisation & 0.459 & 0.411 / 0.01 & 0.507 / 0.17 & $-0.034$ \\
 % \end{tabular}
 % \end{table}
 
-% \begin{table}[!htbp]
-% \centering
-% \caption{\textbf{EmotionCLIP features on the binary calls} (153 development clips, video-grouped 5-fold cross-validation with duplicate videos merged). EmotionCLIP (ViT-B/32 with a subject mask and a temporal transformer) was used frozen, with the child's pose-derived box as the subject mask: a 512-d embedding per step and per window.
-% \emph{Approaches:} linear = class-balanced logistic regression on the one-hot indicator combination plus PCA-reduced embeddings (8 or 16 components, fitted in-fold), with the regularisation chosen on an inner fold; network = ContextPose with an EmotionCLIP stream in place of the face stream, starting from the lookup (V3 settings, 5-seed ensemble).
-% \emph{Ranges:} for the linear rows, the value range spans the PCA sizes, averaged over 5 fold arrangements; the parenthesised range is the spread over those arrangements. Brackets on network rows are 95\% participant-bootstrap intervals. Targets: arousal high vs low (148 clips, 33 high); valence positive vs not (150 clips, 100 positive). Bold: best.}
-% \label{tab:eclip}
-% \begin{tabular}{llcc}
-% \toprule
-% Call & Approach & Balanced accuracy & AUC \\
-% \midrule
-% \multirow{4}{*}{Arousal}
-%  & Context lookup & 68\% & 0.63 \\
-%  & EmotionCLIP alone (linear) & -- & 0.72--0.77 \\
-%  & \best{Linear: context + face + EmotionCLIP} & \best{74--75\%} (65--79\%) & \best{0.80--0.81} \\
-%  & Network: context + EmotionCLIP stream & 60\%\ci{47}{75} & 0.75 \\
-% \midrule
-% \multirow{2}{*}{Valence}
-%  & EmotionCLIP alone (linear) & 41--47\% & 0.35--0.48 \\
-%  & Network: context + EmotionCLIP stream & 52\%\ci{42}{61} & 0.59 \\
-% \bottomrule
-% \end{tabular}
-% \end{table}
+\begin{table}[!htbp]
+\centering
+\caption{\textbf{Frozen EmotionCLIP features on the binary calls}, in linear models and in ContextPose (cross-validated). Cells are balanced accuracy and AUC.}
+\label{tab:eclip}
+\begin{tabular}{llcc}
+\toprule
+Call & Approach & Balanced accuracy & AUC \\
+\midrule
+\multirow{4}{*}{Arousal}
+ & Annotation lookup (no network) & 68\% & 0.63 \\
+ & EmotionCLIP alone (linear) & 66--70\% & 0.72--0.77 \\
+ & \best{Linear: annotation + face + EmotionCLIP} & \best{74--75\%} (65--79\%) & \best{0.80--0.81} \\
+ & Network: annotation + EmotionCLIP stream & 60\%\ci{47}{75} & 0.75 \\
+\midrule
+\multirow{3}{*}{Valence}
+ & Annotation lookup (no network) & 53\% & 0.55 \\
+ & EmotionCLIP alone (linear) & 41--45\% & 0.35--0.38 \\
+ & Network: annotation + EmotionCLIP stream & 52\%\ci{42}{61} & 0.59 \\
+\bottomrule
+\end{tabular}
+\tabledesc{EmotionCLIP (CVPR 2023; a ViT-B/32 image encoder with a subject mask and a temporal transformer) was used frozen, as a feature extractor. The subject mask is the child's box from the pose joints (padded, with the torso extended) on a 224\,px crop centred on the child; steps where the child is untracked (6\%) use an empty mask. It yields a 512-d embedding at each of the 32 steps per window and one per window. The clips, folds and binary targets are those of Table~\ref{tab:streams}: arousal high vs low (148 clips, 33 high), valence positive vs not (150 clips, 100 positive).
+\emph{Approaches:}
+\begin{itemize}
+  \item Annotation lookup: the per-combination call from the four event indicators, refitted on each fold's training clips (reference).
+  \item Linear: class-balanced logistic regression on the one-hot indicator combination, the FER face embedding (with a flag for clips without a usable face) and the EmotionCLIP window embeddings, as each row lists. Each embedding is reduced in-fold by PCA to 8 or 16 components. The regularisation strength is chosen by log-loss on an inner fold.
+  \item Network: ContextPose with an EmotionCLIP stream in place of the face stream, starting from the annotation lookup (votes objective, 5-seed ensemble).
+\end{itemize}
+\emph{Ranges:} a linear cell gives the range over the two PCA sizes, each averaged over 5 fold arrangements; the parenthesised range is the spread over those arrangements. Brackets on the network rows are 95\% participant-bootstrap intervals. Bold marks the best arousal result.
+\emph{Findings:}
+\begin{itemize}
+  \item EmotionCLIP carries arousal signal: alone it matches the lookup's calls (66--70\% vs 68\%) and ranks clips better (AUC 0.72--0.77 vs 0.63).
+  \item Annotation + face + EmotionCLIP in a linear model is the best arousal result of the project (74--75\%, AUC 0.80--0.81). With 32 PCA components it overfits (68\%).
+  \item In the network the same features rank clips well (AUC 0.75) but make worse calls (60\%).
+  \item Valence is at or below chance in every setting, which suggests cues tied to particular videos that reverse on new ones.
+\end{itemize}}
+\end{table}
 
 % \begin{table}[!htbp]
 % \centering
