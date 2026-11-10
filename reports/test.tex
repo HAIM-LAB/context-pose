@@ -374,9 +374,10 @@ Call & Approach & Balanced accuracy & AUC \\
  & \best{Linear: annotation + face + EmotionCLIP} & \best{74--75\%} (65--79\%) & \best{0.80--0.81} \\
  & Network: annotation + EmotionCLIP stream & 60\%\ci{47}{75} & 0.75 \\
 \midrule
-\multirow{3}{*}{Valence}
+\multirow{4}{*}{Valence}
  & Annotation lookup (no network) & 53\% & 0.55 \\
  & EmotionCLIP alone (linear) & 41--45\% & 0.35--0.38 \\
+ & Linear: annotation + face + EmotionCLIP & 50--56\% (45--59\%) & 0.48--0.55 \\
  & Network: annotation + EmotionCLIP stream & 52\%\ci{42}{61} & 0.59 \\
 \bottomrule
 \end{tabular}
@@ -393,7 +394,7 @@ Call & Approach & Balanced accuracy & AUC \\
   \item EmotionCLIP carries arousal signal: alone it matches the lookup's calls (66--70\% vs 68\%) and ranks clips better (AUC 0.72--0.77 vs 0.63).
   \item Annotation + face + EmotionCLIP in a linear model is the best arousal result of the project (74--75\%, AUC 0.80--0.81). With 32 PCA components it overfits (68\%).
   \item In the network the same features rank clips well (AUC 0.75) but make worse calls (60\%).
-  \item Valence is at or below chance in every setting, which suggests cues tied to particular videos that reverse on new ones.
+  \item Valence is at or near chance in every setting, which suggests cues tied to particular videos that reverse on new ones. Adding EmotionCLIP to a linear annotation + face model lowers valence (from 59--61\%, AUC 0.63--0.64, to 50--56\%, AUC 0.48--0.55).
 \end{itemize}}
 \end{table}
 
