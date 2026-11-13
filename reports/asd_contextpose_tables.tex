@@ -313,6 +313,40 @@ Call & Approach & Balanced accuracy & AUC \\
 
 \begin{table}[!htbp]
 \centering
+\caption{\textbf{External evaluation on EMOTIC: frozen EmotionCLIP and face features on binary valence and arousal calls} (official splits; refitted on train + val, 18,396 persons, and scored once on test). Each row is a class-balanced logistic regression on one annotated person in a still image. EMOTIC has no event annotation, VLM descriptions, video or pose, so the annotation and VLM streams and all temporal components are absent.
+\emph{Features:} EmotionCLIP = the frozen ViT-B/32 image encoder on a 224\,px crop (0.875 $\times$ the short side) centred on the person's box, with the box as subject mask, as in Table~\ref{tab:eclip}; face = the best YuNet face inside the box, cropped at 1.8 $\times$ the face box and embedded with the frozen FER ViT, kept only if it passes the ASD quality gate (71\% of test persons), mean-imputed and flagged otherwise. Each block is reduced by PCA to 8 or 16 components (or not reduced) and standardised; the regularisation is chosen by validation log-loss.
+\emph{Labels:} continuous valence and arousal (1--10) cut at 5.5, ties at 5.5 excluded. The framesdb images are not in our copy, so 74\% of test persons are used; children = EMOTIC's ``Kid'' age group.
+\emph{Cells:} 8--16 ranges span the two PCA sizes; brackets span both sizes' 95\% image-bootstrap intervals. Not comparable with published EMOTIC results (26-category mAP, continuous error). Bold: best per column within each block.}
+\label{tab:emotic}
+\small
+\begin{tabular}{llcccc}
+\toprule
+ & & \multicolumn{2}{c}{Valence: positive vs not} & \multicolumn{2}{c}{Arousal: high vs low} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+Features & PCA & Bal. acc. & AUC & Bal. acc. & AUC \\
+\midrule
+\multicolumn{6}{l}{\emph{All test persons} (valence $n{=}4{,}849$, 52\% positive; arousal $n{=}5{,}103$, 57\% high)} \\
+Always majority & -- & 50\% & 0.50 & 50\% & 0.50 \\
+EmotionCLIP & 8--16 & 64--65\%\ci{63}{66} & 0.71 & 72\%\ci{70}{73} & 0.77--0.79 \\
+Face & 8--16 & 66\%\ci{64}{67} & 0.71 & 62--64\%\ci{61}{66} & 0.66--0.68 \\
+EmotionCLIP + face & 8--16 & \best{66--67\%}\ci{65}{68} & \best{0.75} & 72\%\ci{71}{74} & 0.78--0.79 \\
+EmotionCLIP & none & 65\%\ci{63}{66} & 0.73 & \best{74\%}\ci{73}{75} & \best{0.81} \\
+Face & none & 65\%\ci{63}{66} & 0.70 & 64\%\ci{62}{65} & 0.68 \\
+EmotionCLIP + face & none & 65\%\ci{64}{67} & 0.73 & 73\%\ci{71}{74} & 0.79 \\
+\midrule
+\multicolumn{6}{l}{\emph{Children only} (valence $n{=}406$, 58\% positive; arousal $n{=}423$, 46\% high)} \\
+EmotionCLIP & 8--16 & 56--57\%\ci{51}{62} & 0.63--0.64 & \best{70\%}\ci{65}{74} & 0.73--0.74 \\
+Face & 8--16 & \best{66\%}\ci{61}{71} & \best{0.72--0.73} & 55--56\%\ci{50}{61} & 0.58--0.59 \\
+EmotionCLIP + face & 8--16 & 59--60\%\ci{54}{64} & 0.71 & 69--70\%\ci{65}{73} & 0.73--0.75 \\
+EmotionCLIP & none & 58\%\ci{53}{63} & 0.66 & 69\%\ci{65}{73} & \best{0.76} \\
+Face & none & 62\%\ci{58}{67} & 0.69 & 58\%\ci{53}{63} & 0.62 \\
+EmotionCLIP + face & none & 62\%\ci{57}{66} & 0.69 & \best{70\%}\ci{65}{74} & 0.74 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
 \caption{\textbf{VLM scene descriptions and a second (uploaded) face model on the binary calls} (153 development clips, video-grouped 5-fold cross-validation with duplicate videos merged, votes objective, 5-seed ensembles, V3 training settings). Cells are balanced accuracy / AUC.
 \emph{Features:} VLM = Qwen3-Omni descriptions of 5--6\,s windows (scene, child actions, audible context) embedded with \code{all-MiniLM-L6-v2} and averaged into one 384-d clip vector, used as ContextPose's context vector; our FER face = the detector-gated FER ViT embedding; uploaded ViT face = \code{face\_features\_v3/vit} \code{backbone\_cls} at the frame nearest each step, masked by its own face detection (cosine similarity with our FER embedding 0.17).
 \emph{Offsets:} every row above the rule starts from the event-annotation lookup, so ``lookup + VLM'' combines the annotation and the VLM; the last row uses a constant offset and so replaces the annotation with the VLM. Rows are trained for up to 60 epochs unless marked 150. Valence: positive vs not (150 clips, 100 positive); arousal: high vs low (148 clips, 33 high). Bold: best per column.}

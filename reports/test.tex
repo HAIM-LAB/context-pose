@@ -398,6 +398,131 @@ Call & Approach & Balanced accuracy & AUC \\
 \end{itemize}}
 \end{table}
 
+\begin{table}[!htbp]
+\centering
+\caption{\textbf{External evaluation on EMOTIC: frozen EmotionCLIP and face features} on binary valence and arousal calls (official splits, test set scored once; no annotation or VLM stream). Balanced accuracy with 95\% intervals, and AUC.}
+\label{tab:emotic}
+\small
+\begin{tabular}{llcccc}
+\toprule
+ & & \multicolumn{2}{c}{Valence: positive vs not} & \multicolumn{2}{c}{Arousal: high vs low} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+Features & PCA & Bal. acc. & AUC & Bal. acc. & AUC \\
+\midrule
+\multicolumn{6}{l}{\emph{All test persons} (valence $n{=}4{,}849$, 52\% positive; arousal $n{=}5{,}103$, 57\% high)} \\
+Always majority & -- & 50\% & 0.50 & 50\% & 0.50 \\
+EmotionCLIP & 8--16 & 64--65\%\ci{63}{66} & 0.71 & 72\%\ci{70}{73} & 0.77--0.79 \\
+Face & 8--16 & 66\%\ci{64}{67} & 0.71 & 62--64\%\ci{61}{66} & 0.66--0.68 \\
+EmotionCLIP + face & 8--16 & \best{66--67\%}\ci{65}{68} & \best{0.75} & 72\%\ci{71}{74} & 0.78--0.79 \\
+EmotionCLIP & none & 65\%\ci{63}{66} & 0.73 & \best{74\%}\ci{73}{75} & \best{0.81} \\
+Face & none & 65\%\ci{63}{66} & 0.70 & 64\%\ci{62}{65} & 0.68 \\
+EmotionCLIP + face & none & 65\%\ci{64}{67} & 0.73 & 73\%\ci{71}{74} & 0.79 \\
+\midrule
+\multicolumn{6}{l}{\emph{Children only} (valence $n{=}406$, 58\% positive; arousal $n{=}423$, 46\% high)} \\
+EmotionCLIP & 8--16 & 56--57\%\ci{51}{62} & 0.63--0.64 & \best{70\%}\ci{65}{74} & 0.73--0.74 \\
+Face & 8--16 & \best{66\%}\ci{61}{71} & \best{0.72--0.73} & 55--56\%\ci{50}{61} & 0.58--0.59 \\
+EmotionCLIP + face & 8--16 & 59--60\%\ci{54}{64} & 0.71 & 69--70\%\ci{65}{73} & 0.73--0.75 \\
+EmotionCLIP & none & 58\%\ci{53}{63} & 0.66 & 69\%\ci{65}{73} & \best{0.76} \\
+Face & none & 62\%\ci{58}{67} & 0.69 & 58\%\ci{53}{63} & 0.62 \\
+EmotionCLIP + face & none & 62\%\ci{57}{66} & 0.69 & \best{70\%}\ci{65}{74} & 0.74 \\
+\bottomrule
+\end{tabular}
+\tabledesc{Each row is a class-balanced logistic regression on frozen features of one annotated person in an EMOTIC still image (persons in context, in images from MSCOCO, ADE20K and EMODB). EMOTIC has no environmental-event annotation or VLM descriptions yet, so neither stream is used. It has no video or pose either, so the temporal parts of the ASD setup (pre/event/post windows, EmotionCLIP's temporal transformer, ContextPose and the recurrent baselines) do not apply.
+\emph{Features:}
+\begin{itemize}
+  \item EmotionCLIP: the frozen ViT-B/32 image encoder on a 224\,px square crop (0.875 $\times$ the image's short side) centred on the person's box, with the box as the binary subject mask. This is the crop and mask of Table~\ref{tab:eclip}, applied to one image.
+  \item Face: the best YuNet face whose centre lies inside the person's box, cropped at 1.8 $\times$ the face box and embedded with the frozen FER ViT (768-d [CLS]). It is kept only if it passes the ASD quality gate (detector score $\geq 0.8$, brightness $\geq 40$, sharpness $\geq 10$), as 71\% of test persons do. Missing faces are mean-imputed and flagged.
+\end{itemize}
+\emph{Model:} as in Table~\ref{tab:eclip}, each block is reduced by PCA to 8 or 16 components (or not reduced) and standardised. The regularisation strength is chosen by validation log-loss on a train-only fit; the model is then refitted on train + val (18,396 persons) and scored once on test, with calls at probability 0.5.
+\emph{Labels:} EMOTIC's continuous valence and arousal (1--10; averaged over annotators on test), cut at the midpoint: positive / high above 5.5, not positive / low below. Persons at exactly 5.5 are ties and are excluded.
+\emph{Data:} the framesdb images are not in our copy of EMOTIC, so the table uses the 15,999 train, 2,397 val and 5,369 test persons whose images are present (74\% of test persons). Children are EMOTIC's ``Kid'' age group.
+\emph{Cells:} an 8--16 cell gives the range over the two PCA sizes, and its bracket spans both sizes' 95\% image-bootstrap intervals (2000 draws). AUC intervals are about $\pm 0.015$ on all persons and $\pm 0.05$ on children. Bold marks the best result per column within each block.
+\emph{Findings:}
+\begin{itemize}
+  \item Arousal comes from EmotionCLIP (AUC 0.77--0.81), as on the ASD clips; adding the face changes little.
+  \item Unlike on the ASD clips, EmotionCLIP also carries valence (AUC 0.71--0.73), and EmotionCLIP + face is best for valence overall.
+  \item For children, the face carries valence (66\%, AUC 0.72--0.73), and adding EmotionCLIP lowers it to 59--60\%, as adding EmotionCLIP lowered valence on the ASD clips.
+  \item The binary cut and the image subset are ours, so these numbers are not comparable with published EMOTIC results (26-category mAP and continuous-dimension error).
+\end{itemize}}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\caption{\textbf{AffectGPT descriptions as a ContextPose stream} (G, in place of the VLM stream V of Table~\ref{tab:streams}; cross-validated, 5-seed ensembles). Balanced accuracy with 95\% intervals, and AUC; the last two columns repeat the matching V row.}
+\label{tab:affectgpt}
+\small
+\setlength{\tabcolsep}{4pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lcccccc}
+\toprule
+ & \multicolumn{2}{c}{Valence: positive vs not} & \multicolumn{2}{c}{Arousal: high vs low} & \multicolumn{2}{c}{Same row with V} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Streams & Bal. acc. & AUC & Bal. acc. & AUC & Valence & Arousal \\
+\midrule
+Annotation lookup (no network) & 53\% & 0.55 & 68\% & 0.63 & & \\
+\midrule
+G only & 44\%\ci{35}{52} & 0.42 & 53\%\ci{43}{64} & 0.40 & 48 / .53 & 76 / .69 \\
+Pose + G & 47\%\ci{33}{59} & 0.52 & 57\%\ci{46}{69} & 0.55 & 48 / .52 & 60 / .55 \\
+G + face & \best{62\%}\ci{49}{73} & \best{0.72} & 67\%\ci{56}{77} & 0.70 & 62 / .74 & 69 / .72 \\
+Annotation + G & 57\%\ci{45}{68} & 0.59 & 54\%\ci{41}{72} & 0.58 & 61 / .60 & 69 / .75 \\
+\midrule
+Pose + G + face & 49\%\ci{35}{63} & 0.58 & 64\%\ci{52}{75} & 0.64 & 49 / .58 & 64 / .64 \\
+Pose + annotation + G & 57\%\ci{45}{67} & 0.60 & 60\%\ci{48}{73} & 0.67 & 58 / .59 & 59 / .67 \\
+Annotation + G + face & 60\%\ci{46}{71} & 0.70 & \best{71\%}\ci{61}{81} & \best{0.72} & 64 / .70 & 69 / .75 \\
+\midrule
+All four (P + A + G + F) & 58\%\ci{44}{70} & 0.66 & 56\%\ci{43}{70} & 0.70 & 58 / .66 & 56 / .70 \\
+\bottomrule
+\end{tabular}%
+}
+\tabledesc{Each row is ContextPose with AffectGPT's description embedding (G) as the context vector, in the place of the VLM embedding (V) of Table~\ref{tab:streams}. The clips, folds, votes objective, training settings (up to 60 epochs), targets and 5-seed ensembling are those of Table~\ref{tab:streams}. The last two columns repeat the matching V row (balanced accuracy \% / AUC).
+\emph{AffectGPT:} the original model (MER-Caption+ raw-frame checkpoint, epoch 30: Qwen2.5-7B with CLIP ViT-L/14 frame and HuBERT-large audio encoders), run frozen on each whole context clip (8 sampled frames and the soundtrack). The prompt asks for a factual description of the child and the surroundings, and for the four event labels, without inferring emotion. The description is embedded with \code{all-MiniLM-L6-v2} (384-d), as the VLM descriptions are; this is the embedding of the generated text, not AffectGPT's internal representation.
+\emph{Offsets:} as in Table~\ref{tab:streams}, rows with the annotation start from the lookup, and rows without it from a constant offset, so G replaces the annotation there.
+\emph{Findings:}
+\begin{itemize}
+  \item G alone ranks clips below chance (AUC 0.40--0.42), where V alone gave the best arousal calls (76\%).
+  \item Annotation + G is below the lookup for arousal (54\% vs 68\%; gain $-13\%\ci{-26}{-1}$); the network keeps a median epoch of 1, so it finds nothing to learn.
+  \item With the face, G matches the face alone (Table~\ref{tab:streams}: 60\% / 0.73 and 65\% / 0.69); annotation + G + face is close to V3.
+  \item In the rows with pose, the context vector barely changes the predictions (a median 0.003 log-odds from the V runs), so they equal or nearly equal their V rows and do not compare G with V.
+  \item AffectGPT's own event labels agree with the annotators near chance (balanced accuracy 54--59\% per indicator): it marks most clips as having each event.
+\end{itemize}}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\caption{\textbf{Does AffectGPT add to the VLM? Linear probe with and without the AffectGPT embedding} (cross-validated). Balanced accuracy (spread over fold arrangements) and AUC; each ``+ AffectGPT'' row follows the same set without it.}
+\label{tab:affectgpt_linear}
+\small
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{2}{c}{Valence: positive vs not} & \multicolumn{2}{c}{Arousal: high vs low} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Features & Bal. acc. & AUC & Bal. acc. & AUC \\
+\midrule
+Annotation & 51\% (48--59) & 0.50 & 67\% (66--68) & 0.65 \\
+AffectGPT & 43--45\% (40--50) & 0.41--0.45 & 41--42\% (36--51) & 0.36--0.39 \\
+\midrule
+VLM & 48--52\% (44--56) & 0.49--0.53 & 58--63\% (51--66) & 0.64--0.71 \\
+\quad + AffectGPT & 50\% (45--56) & 0.48--0.49 & 55--56\% (49--61) & 0.57--0.60 \\
+Annotation + VLM & 48--51\% (44--58) & 0.49--0.53 & 60--67\% (52--71) & 0.69--0.75 \\
+\quad + AffectGPT & 49--50\% (44--56) & 0.48--0.49 & 54--58\% (46--60) & 0.58--0.64 \\
+VLM + face & 57--61\% (54--65) & 0.61--0.65 & 63--68\% (57--73) & 0.72--0.73 \\
+\quad + AffectGPT & 56--58\% (53--64) & 0.59--0.60 & 57--61\% (54--64) & 0.64--0.66 \\
+Annotation + VLM + face & 56--62\% (54--66) & 0.60--0.64 & 64--73\% (60--75) & \best{0.73--0.78} \\
+\quad + AffectGPT & 56--58\% (53--62) & 0.59--0.60 & 58--64\% (53--67) & 0.66--0.70 \\
+\midrule
+Annotation + face (reference) & 59--61\% (57--65) & 0.63--0.64 & 65--68\% (61--74) & 0.70--0.73 \\
+\bottomrule
+\end{tabular}
+\tabledesc{Each row is a class-balanced logistic regression on the listed blocks, as in Table~\ref{tab:eclip}: the one-hot indicator combination (annotation), the FER face embedding with a has-face flag, and the 384-d VLM and AffectGPT description embeddings (Table~\ref{tab:affectgpt}). Each embedding is reduced in-fold by PCA to 8 or 16 components and standardised; the regularisation strength is chosen by log-loss on an inner fold. The clips and binary targets are those of Table~\ref{tab:streams}.
+\emph{Cells:} a range spans the two PCA sizes, each averaged over 5 fold arrangements; parentheses give the spread over those arrangements. Bold marks the best arousal AUC.
+\emph{Findings:}
+\begin{itemize}
+  \item AffectGPT alone ranks clips below chance (AUC 0.36--0.45), which suggests cues tied to particular videos that reverse on new ones.
+  \item Adding it lowers every VLM combination, most for arousal (AUC $-0.07$ to $-0.11$): annotation + VLM + face falls from 0.73--0.78 to 0.66--0.70.
+  \item The linear VLM is weaker than the network VLM (Table~\ref{tab:streams}), so this probe tests whether AffectGPT adds to the VLM, not how well the VLM can do.
+\end{itemize}}
+\end{table}
+
 % \begin{table}[!htbp]
 % \centering
 % \caption{\textbf{VLM scene descriptions and a second (uploaded) face model on the binary calls} (153 development clips, video-grouped 5-fold cross-validation with duplicate videos merged, votes objective, 5-seed ensembles, V3 training settings). Cells are balanced accuracy / AUC.

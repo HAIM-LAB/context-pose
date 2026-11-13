@@ -57,6 +57,7 @@ We study whether the valence and arousal that annotators assign to short video c
   \item Frozen face, audio and video features; a gated face stream inside the network (Section~\ref{sec:face}).
   \item An analysis of why no model beat majority-class accuracy, leading to annotator-vote targets and binary calls (Section~\ref{sec:votes}).
   \item The V3 candidate; EmotionCLIP, VLM scene-description and second ViT face features; pose revisited; GRU and BiLSTM baselines (Sections~\ref{sec:v3}--\ref{sec:baselines}).
+  \item An external check of the EmotionCLIP and face features on the EMOTIC image dataset (Section~\ref{sec:emotic}).
 \end{enumerate}
 
 \paragraph{Main result: which streams help.} Table~\ref{tab:streams} scores the ContextPose model (Section~\ref{sec:arch}) with its input streams used alone, in pairs, in threes, and all together. The streams are pose, event annotation and face, plus the VLM scene-description embedding (Section~\ref{sec:vlm}), which can take the annotation's place as the context vector $c$. Every row uses the same folds, the votes objective and the V3 training settings (60-epoch cap).
@@ -675,6 +676,54 @@ Call & Approach & Balanced accuracy & AUC \\
   \item \textbf{Networks:} the network version ranks clips well but makes worse calls.
   \item \textbf{Valence:} at or near chance in every setting, which suggests cues tied to particular videos that reverse on new ones. Adding EmotionCLIP to a linear context + face model lowers valence (59--61\%, AUC 0.63--0.64 without it).
   \item \textbf{Licence:} the weights' licence is unstated and must be checked before publication.
+\end{itemize}
+
+\subsection{External evaluation on EMOTIC}\label{sec:emotic}
+The same frozen features were evaluated on EMOTIC, a public dataset of annotated persons in still images (MSCOCO, ADE20K and EMODB), to check whether they carry valence and arousal signal outside our clips. EMOTIC has no event annotation, VLM descriptions, video or pose, so only the EmotionCLIP and face streams are used, in the linear setup of Table~\ref{tab:eclip}:
+\begin{itemize}
+  \item \textbf{EmotionCLIP:} \code{encode\_image} on a 224\,px crop (0.875 $\times$ the short side) centred on the person's box, with the box as subject mask. One image, so no window embeddings and no temporal transformer.
+  \item \textbf{Face:} the best YuNet face inside the person's box, cropped at 1.8 $\times$ the face box and embedded with the FER ViT. It is kept only if it passes the ASD quality gate (Section~\ref{sec:face}); 71\% of test persons do.
+  \item \textbf{Model:} PCA (8 or 16 components, or none), standardisation and class-balanced logistic regression. The regularisation is chosen by validation log-loss; the model is refitted on train + val (18,396 persons) and scored once on test.
+  \item \textbf{Labels:} continuous valence and arousal (1--10) cut at 5.5, with ties at 5.5 excluded.
+  \item \textbf{Data:} the framesdb images are missing from our copy, so 74\% of test persons are used. Children are EMOTIC's ``Kid'' age group.
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\caption{EMOTIC, test set (balanced accuracy with 95\% image-bootstrap intervals, and AUC). 8--16 cells span the two PCA sizes. Bold: best per column within each block.}
+\label{tab:emotic}
+\small
+\begin{tabular}{llcccc}
+\toprule
+ & & \multicolumn{2}{c}{Valence: positive vs not} & \multicolumn{2}{c}{Arousal: high vs low} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+Features & PCA & Bal. acc. & AUC & Bal. acc. & AUC \\
+\midrule
+\multicolumn{6}{l}{\emph{All test persons} (valence $n{=}4{,}849$, 52\% positive; arousal $n{=}5{,}103$, 57\% high)} \\
+Always majority & -- & 50\% & 0.50 & 50\% & 0.50 \\
+EmotionCLIP & 8--16 & 64--65\%\ci{63}{66} & 0.71 & 72\%\ci{70}{73} & 0.77--0.79 \\
+Face & 8--16 & 66\%\ci{64}{67} & 0.71 & 62--64\%\ci{61}{66} & 0.66--0.68 \\
+EmotionCLIP + face & 8--16 & \best{66--67\%}\ci{65}{68} & \best{0.75} & 72\%\ci{71}{74} & 0.78--0.79 \\
+EmotionCLIP & none & 65\%\ci{63}{66} & 0.73 & \best{74\%}\ci{73}{75} & \best{0.81} \\
+Face & none & 65\%\ci{63}{66} & 0.70 & 64\%\ci{62}{65} & 0.68 \\
+EmotionCLIP + face & none & 65\%\ci{64}{67} & 0.73 & 73\%\ci{71}{74} & 0.79 \\
+\midrule
+\multicolumn{6}{l}{\emph{Children only} (valence $n{=}406$, 58\% positive; arousal $n{=}423$, 46\% high)} \\
+EmotionCLIP & 8--16 & 56--57\%\ci{51}{62} & 0.63--0.64 & \best{70\%}\ci{65}{74} & 0.73--0.74 \\
+Face & 8--16 & \best{66\%}\ci{61}{71} & \best{0.72--0.73} & 55--56\%\ci{50}{61} & 0.58--0.59 \\
+EmotionCLIP + face & 8--16 & 59--60\%\ci{54}{64} & 0.71 & 69--70\%\ci{65}{73} & 0.73--0.75 \\
+EmotionCLIP & none & 58\%\ci{53}{63} & 0.66 & 69\%\ci{65}{73} & \best{0.76} \\
+Face & none & 62\%\ci{58}{67} & 0.69 & 58\%\ci{53}{63} & 0.62 \\
+EmotionCLIP + face & none & 62\%\ci{57}{66} & 0.69 & \best{70\%}\ci{65}{74} & 0.74 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{Arousal comes from EmotionCLIP} (AUC 0.77--0.81), as on our clips; adding the face changes little.
+  \item \textbf{EmotionCLIP carries valence on EMOTIC} (AUC 0.71--0.73), unlike on our clips (0.35--0.38). The valence failure on our clips is therefore more likely due to the clips (153, cues tied to particular videos) than to the features.
+  \item \textbf{For children the face carries valence} (66\%, AUC 0.72--0.73), and adding EmotionCLIP lowers it to 59--60\%, as it lowered valence on our clips.
+  \item \textbf{Not a standard EMOTIC benchmark:} the binary cut and the image subset are ours, so the numbers are not comparable with published EMOTIC results (26-category mAP, continuous-dimension error).
 \end{itemize}
 
 %=====================================================================
