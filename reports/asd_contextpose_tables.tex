@@ -5,6 +5,7 @@
 \usepackage{lmodern}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
+\usepackage{graphicx}
 \usepackage{multirow}
 \usepackage{caption}
 \usepackage[colorlinks=true,linkcolor=blue!50!black]{hyperref}
@@ -153,63 +154,69 @@ $\checkmark$ & & & & 11 & $+0.67$ & $-1.00$ \\
 \caption{\textbf{Phase 1 architecture comparison: regression of the consensus valence and arousal labels} ($[-1, 1]$ scale) on 153 development clips, video-grouped 5-fold cross-validation (original folds, before the duplicate-video merge), predictions averaged over 5 seeds.
 \emph{Models:} \code{text\_attention} = ContextPose conditioned on the CLIP ViT-L/14 embedding of the event sentence; \code{annotation\_attention} = the same conditioned on the four indicators; \code{annotation\_film} = indicators modulating the pose features by FiLM; pose only = context zeroed.
 \emph{Training:} default = width 128, learning rate $10^{-3}$, 30 epochs, patience 5; regularised = width 64, dropout 0.3, weight decay 0.05, learning rate $3\times10^{-4}$, pose augmentation.
-\emph{Metrics:} MAE = mean absolute error (lower is better); CCC = concordance correlation coefficient (higher is better; 0 for a constant prediction). Mean MAE averages valence (V) and arousal (A). Bold: best, the non-learned lookup, which no network beats.}
+\emph{Metrics:} MAE = mean absolute error (lower is better); RMSE = root-mean-square error (lower is better; it penalises large errors more than MAE); CCC = concordance correlation coefficient (higher is better; 0 for a constant prediction). Mean MAE and mean RMSE average valence (V) and arousal (A). mAP = mean over V and A of the average precision with which the prediction ranks the clips with a positive consensus label (positive valence; high arousal) above the rest (higher is better; a constant prediction scores the positive share, 0.78 for valence and 0.20 for arousal, so mAP 0.49). Bold: best per column; the non-learned lookup is best on mean MAE, mean RMSE and mAP, and no network beats it.}
 \label{tab:spec}
-\begin{tabular}{llcccc}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{llccccc}
 \toprule
-Model & Training & Mean MAE & V MAE / CCC & A MAE / CCC \\
+Model & Training & Mean MAE & Mean RMSE & mAP & V MAE / RMSE / CCC & A MAE / RMSE / CCC \\
 \midrule
-\code{text\_attention} (CLIP) & default & 0.483 & 0.400 / $-0.06$ & 0.567 / $-0.04$ \\
-\code{annotation\_attention} & default & 0.482 & 0.409 / $-0.04$ & 0.554 / $0.02$ \\
-\code{annotation\_film} & default & 0.496 & 0.421 / $-0.08$ & 0.572 / $0.03$ \\
-Pose only & default & 0.496 & 0.428 / $-0.12$ & 0.563 / $0.01$ \\
-\code{text\_attention} (CLIP) & regularised & 0.467 & 0.383 / $-0.03$ & 0.551 / $-0.01$ \\
-\code{annotation\_attention} & regularised & 0.468 & 0.383 / $-0.01$ & 0.553 / $-0.03$ \\
-\code{annotation\_film} & regularised & 0.468 & 0.389 / $0.03$ & 0.547 / $0.07$ \\
-Pose only & regularised & 0.468 & 0.384 / $-0.01$ & 0.553 / $-0.03$ \\
+\code{text\_attention} (CLIP) & default & 0.483 & 0.603 & 0.480 & 0.400 / 0.508 / $-0.06$ & 0.567 / 0.697 / $-0.04$ \\
+\code{annotation\_attention} & default & 0.482 & 0.587 & 0.514 & 0.409 / 0.502 / $-0.04$ & 0.554 / 0.672 / $0.02$ \\
+\code{annotation\_film} & default & 0.496 & 0.611 & 0.518 & 0.421 / 0.520 / $-0.08$ & 0.572 / 0.701 / $0.03$ \\
+Pose only & default & 0.496 & 0.606 & 0.503 & 0.428 / 0.527 / $-0.12$ & 0.563 / 0.685 / $0.01$ \\
+\code{text\_attention} (CLIP) & regularised & 0.467 & 0.585 & 0.499 & 0.383 / 0.500 / $-0.03$ & 0.551 / \best{0.669} / $-0.01$ \\
+\code{annotation\_attention} & regularised & 0.468 & 0.590 & 0.490 & 0.383 / 0.496 / $-0.01$ & 0.553 / 0.683 / $-0.03$ \\
+\code{annotation\_film} & regularised & 0.468 & 0.581 & 0.582 & 0.389 / 0.483 / $0.03$ & 0.547 / 0.679 / $0.07$ \\
+Pose only & regularised & 0.468 & 0.590 & 0.490 & 0.384 / 0.497 / $-0.01$ & 0.553 / 0.682 / $-0.03$ \\
 \midrule
-Overall median & -- & 0.464 & 0.373 / $0.00$ & 0.555 / $-0.08$ \\
-\best{Context lookup (median per combination)} & -- & \best{0.425} & \best{0.351} / \best{0.34} & \best{0.498} / \best{0.15} \\
+Overall median & -- & 0.464 & 0.604 & 0.490 & 0.373 / 0.495 / $0.00$ & 0.555 / 0.713 / $-0.08$ \\
+\best{Context lookup (median per combination)} & -- & \best{0.425} & \best{0.572} & \best{0.585} & \best{0.351} / \best{0.462} / \best{0.34} & \best{0.498} / 0.681 / \best{0.15} \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
 \begin{table}[!htbp]
 \centering
 \caption{\textbf{Phase 1: residual learning, L1 loss and a real-time speed channel} (regression of the consensus labels, 153 development clips, video-grouped 5-fold cross-validation on the original folds, predictions averaged over 5 seeds).
 \emph{Configurations:} residual = the network predicts a correction to the training folds' lookup median; speed = a fourth pose feature with joint speed in shoulder widths per second at 25\,fps, which keeps real-time units after each window is resampled to 32 steps; L1 / MSE = training loss; regularisation as in Table~\ref{tab:spec}; S5 = S4 with the context removed from the network (the residual still supplies the lookup).
-\emph{Metrics:} MAE (lower is better) and CCC (higher is better) for valence (V) and arousal (A). Gain = lookup mean MAE minus model mean MAE (positive = better than the lookup), with a 95\% participant-bootstrap interval where computed. Bold: best, the lookup.}
+\emph{Metrics:} MAE, RMSE (lower is better) and CCC (higher is better) for valence (V) and arousal (A); mean RMSE and mAP as in Table~\ref{tab:spec}. Gain = lookup mean MAE minus model mean MAE (positive = better than the lookup), with a 95\% participant-bootstrap interval where computed. Bold: best per column. The lookup is best on mean MAE. S5 and S4 have the best mean RMSE and mAP, but neither difference from the lookup is significant (S4: RMSE gain $+0.014$\ci{-0.025}{+0.051}, mAP gain $+0.056$\ci{-0.014}{+0.154}).}
 \label{tab:speed}
-\begin{tabular}{lcccc}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lcccccc}
 \toprule
-Configuration & Mean MAE & V MAE / CCC & A MAE / CCC & Gain vs lookup \\
+Configuration & Mean MAE & Mean RMSE & mAP & V MAE / RMSE / CCC & A MAE / RMSE / CCC & Gain vs lookup \\
 \midrule
-\best{Context lookup} & \best{0.425} & 0.351 / 0.34 & 0.498 / 0.15 & -- \\
-S6: residual + speed, L1 & 0.434 & 0.359 / 0.36 & 0.510 / 0.19 & $-0.009$\ci{-0.049}{+0.028} \\
-S4: residual + speed, MSE & 0.436 & 0.362 / 0.38 & 0.511 / 0.25 & $-0.012$\ci{-0.054}{+0.033} \\
-S5: as S4, pose only & 0.436 & 0.362 / 0.38 & 0.509 / 0.25 & $-0.011$\ci{-0.054}{+0.033} \\
-Residual, no speed (MSE) & 0.451 & -- & -- & -- \\
-Residual, no speed (L1) & 0.445 & 0.373 / 0.27 & 0.517 / 0.15 & -- \\
-S2: speed + regularisation & 0.445 & 0.380 / 0.09 & 0.509 / 0.10 & $-0.020$ \\
-S1: speed, no regularisation & 0.459 & 0.411 / 0.01 & 0.507 / 0.17 & $-0.034$ \\
+\best{Context lookup} & \best{0.425} & 0.572 & 0.585 & 0.351 / 0.462 / 0.34 & 0.498 / 0.681 / 0.15 & -- \\
+S6: residual + speed, L1 & 0.434 & 0.568 & 0.637 & 0.359 / 0.458 / 0.36 & 0.510 / 0.679 / 0.19 & $-0.009$\ci{-0.049}{+0.028} \\
+S4: residual + speed, MSE & 0.436 & 0.558 & \best{0.641} & 0.362 / 0.455 / 0.38 & 0.511 / 0.660 / 0.25 & $-0.012$\ci{-0.054}{+0.033} \\
+S5: as S4, pose only & 0.436 & \best{0.557} & 0.639 & 0.362 / 0.455 / 0.38 & 0.509 / 0.659 / 0.25 & $-0.011$\ci{-0.054}{+0.033} \\
+Residual, no speed (MSE) & 0.451 & 0.574 & 0.612 & 0.372 / 0.471 / 0.30 & 0.530 / 0.676 / 0.19 & -- \\
+Residual, no speed (L1) & 0.445 & 0.587 & 0.605 & 0.373 / 0.485 / 0.27 & 0.517 / 0.688 / 0.15 & -- \\
+S2: speed + regularisation & 0.445 & 0.568 & 0.556 & 0.380 / 0.480 / 0.09 & 0.509 / 0.656 / 0.10 & $-0.020$ \\
+S1: speed, no regularisation & 0.459 & 0.581 & 0.575 & 0.411 / 0.499 / 0.01 & 0.507 / 0.662 / 0.17 & $-0.034$ \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
 \begin{table}[!htbp]
 \centering
-\caption{\textbf{Held-out test set, scored once} (29 usable test clips from 20 videos not seen in development; regression of the consensus labels). All predictors were fitted on the 153 development clips, and the candidate was fixed in advance from cross-validation: the lookup for valence and a linear model on context plus nine hand-crafted movement features per window (head, elbow, wrist and body speed, wrist height and spread, head bob) for arousal. The movement signal did not replicate (arousal CCC 0.00); the lookup's cross-validated performance carried over, making it the only predictor confirmed on new videos. MAE lower is better; CCC higher is better (0.00 = no agreement). Bold: best.}
+\caption{\textbf{Held-out test set, scored once} (29 usable test clips from 20 videos not seen in development; regression of the consensus labels). All predictors were fitted on the 153 development clips, and the candidate was fixed in advance from cross-validation: the lookup for valence and a linear model on context plus nine hand-crafted movement features per window (head, elbow, wrist and body speed, wrist height and spread, head bob) for arousal. The movement signal did not replicate (arousal CCC 0.00); the lookup's cross-validated performance carried over, making it the only predictor confirmed on new videos. MAE and RMSE lower is better; CCC higher is better (0.00 = no agreement); mAP higher is better (defined as in Table~\ref{tab:spec}; a constant prediction scores the test clips' positive share, 0.79 for valence and 0.28 for arousal, so mAP 0.53). Bold: best.}
 \label{tab:test}
-\begin{tabular}{lccc}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lccccc}
 \toprule
-Predictor & Mean MAE & V MAE / CCC & A MAE / CCC \\
+Predictor & Mean MAE & Mean RMSE & mAP & V MAE / RMSE / CCC & A MAE / RMSE / CCC \\
 \midrule
-Candidate (lookup valence + linear movement arousal) & 0.428 & 0.361 / 0.31 & 0.495 / 0.00 \\
-\best{Context lookup} & \best{0.389} & 0.361 / 0.31 & \best{0.417} / \best{0.17} \\
-Overall median & 0.456 & 0.426 / 0.00 & 0.486 / 0.00 \\
-Linear context + movement (both targets) & 0.450 & 0.406 / 0.12 & 0.495 / 0.00 \\
+Candidate (lookup valence + linear movement arousal) & 0.428 & 0.553 & 0.606 & 0.361 / 0.509 / 0.31 & 0.495 / 0.596 / 0.00 \\
+\best{Context lookup} & \best{0.389} & \best{0.538} & \best{0.619} & 0.361 / 0.509 / 0.31 & \best{0.417} / \best{0.567} / \best{0.17} \\
+Overall median & 0.456 & 0.560 & 0.534 & 0.426 / 0.510 / 0.00 & 0.486 / 0.610 / 0.00 \\
+Linear context + movement (both targets) & 0.450 & 0.544 & 0.613 & 0.406 / \best{0.491} / 0.12 & 0.495 / 0.596 / 0.00 \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
 \clearpage
@@ -221,38 +228,42 @@ Linear context + movement (both targets) & 0.450 & 0.406 / 0.12 & 0.495 / 0.00 \
 \centering
 \caption{\textbf{Frozen face, video and audio features as a linear correction on the lookup} (regression of the consensus labels, 153 development clips, video-grouped 5-fold cross-validation on the original folds). Each embedding feeds an L1-penalised linear model that corrects the training folds' lookup.
 \emph{Features:} face = crops at the tracked face keypoints embedded with the FER ViT \code{trpakov/vit-face-expression} (768-d [CLS]) or its 7 expression probabilities; video = V-JEPA 2 on a child crop; audio = AST embedding, or AudioSet event probabilities plus loudness.
-\emph{Metrics:} MAE (lower is better) and CCC (higher is better) for valence (V) and arousal (A). Gain = lookup mean MAE minus model mean MAE (positive = better), with a 95\% participant-bootstrap interval for the face rows. Bold: best.}
+\emph{Metrics:} MAE, RMSE (lower is better) and CCC (higher is better) for valence (V) and arousal (A); mean RMSE and mAP as in Table~\ref{tab:spec}. Gain = lookup mean MAE minus model mean MAE (positive = better), with a 95\% participant-bootstrap interval for the face rows. Bold: best.}
 \label{tab:media}
-\begin{tabular}{lcccc}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lcccccc}
 \toprule
-Input & Mean MAE & V MAE / CCC & A MAE / CCC & Gain vs lookup \\
+Input & Mean MAE & Mean RMSE & mAP & V MAE / RMSE / CCC & A MAE / RMSE / CCC & Gain vs lookup \\
 \midrule
-Context lookup & 0.425 & 0.351 / 0.34 & 0.498 / 0.15 & -- \\
-\best{Face, FER embedding} & \best{0.420} & \best{0.328} / \best{0.47} & 0.511 / 0.21 & $+0.005$\ci{-0.014}{+0.026} \\
-Face, 7 expression probabilities & 0.421 & 0.330 / 0.41 & 0.512 / 0.16 & $+0.004$\ci{-0.024}{+0.026} \\
-Video, V-JEPA 2 (child crop) & 0.426 & 0.351 / 0.34 & 0.501 / 0.15 & $-0.001$ \\
-Audio, AudioSet probabilities + loudness & 0.429 & 0.357 / 0.32 & 0.502 / 0.14 & $-0.005$ \\
-Audio, AST embedding & 0.437 & 0.353 / 0.34 & 0.520 / 0.15 & $-0.012$ \\
+Context lookup & 0.425 & 0.572 & 0.585 & 0.351 / 0.462 / 0.34 & 0.498 / 0.681 / 0.15 & -- \\
+\best{Face, FER embedding} & \best{0.420} & \best{0.559} & 0.615 & \best{0.328} / \best{0.434} / \best{0.47} & 0.511 / 0.683 / 0.21 & $+0.005$\ci{-0.014}{+0.026} \\
+Face, 7 expression probabilities & 0.421 & 0.562 & \best{0.624} & 0.330 / 0.446 / 0.41 & 0.512 / \best{0.679} / 0.16 & $+0.004$\ci{-0.024}{+0.026} \\
+Video, V-JEPA 2 (child crop) & 0.426 & 0.572 & 0.587 & 0.351 / 0.463 / 0.34 & 0.501 / 0.681 / 0.15 & $-0.001$ \\
+Audio, AudioSet probabilities + loudness & 0.429 & 0.574 & 0.595 & 0.357 / 0.467 / 0.32 & 0.502 / 0.682 / 0.14 & $-0.005$ \\
+Audio, AST embedding & 0.437 & 0.580 & 0.598 & 0.353 / 0.465 / 0.34 & 0.520 / 0.695 / 0.15 & $-0.012$ \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
 \begin{table}[!htbp]
 \centering
 \caption{\textbf{Phase 1: the face stream inside ContextPose} (regression of the consensus labels, 153 development clips, video-grouped 5-fold cross-validation on the original folds, predictions averaged over 5 seeds). The face stream encodes the FER embedding at each of the 32 steps per window, averages the steps that pass the quality gate (frontal face, YuNet detector score $\geq 0.8$, brightness $\geq 40$, sharpness $\geq 10$; 39\% of steps kept, 27 clips with no usable face), and adds a zero-initialised correction to the prediction.
 \emph{Configurations:} F0 = residual on the lookup + pose with speed, no face; F1 = F0 + face correcting valence only; F2 = F0 + face correcting both targets; F3 = lookup + face correction, no pose.
-\emph{Metrics:} MAE (lower is better) and valence CCC (higher is better). Gain = mean MAE of the training-fold lookup these models start from (0.422 mean; 0.368 valence, 0.476 arousal) minus the model's, with a 95\% participant-bootstrap interval for F3. Bold: best.}
+\emph{Metrics:} MAE, mean RMSE (lower is better), valence CCC and mAP (higher is better; mean RMSE and mAP as in Table~\ref{tab:spec}). Gain = mean MAE of the training-fold lookup these models start from (0.422 mean; 0.368 valence, 0.476 arousal) minus the model's, with a 95\% participant-bootstrap interval for F3. On mean RMSE and mAP, F3 and F2 edge past the lookup of Table~\ref{tab:spec} (0.572 and 0.585), but the intervals include zero (F3: RMSE gain $+0.013$\ci{-0.011}{+0.040}; F2: mAP gain $+0.071$\ci{-0.012}{+0.175}). Bold: best.}
 \label{tab:face}
-\begin{tabular}{lccccc}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lccccccc}
 \toprule
-Configuration & Mean MAE & V MAE & V CCC & A MAE & Mean gain vs lookup \\
+Configuration & Mean MAE & Mean RMSE & mAP & V MAE & V CCC & A MAE & Mean gain vs lookup \\
 \midrule
-F0: residual + speed, no face & 0.434 & 0.359 & 0.36 & 0.510 & $-0.012$ \\
-F1: + face $\to$ valence & 0.430 & 0.346 & 0.45 & 0.513 & $-0.008$ \\
-F2: + face $\to$ both & 0.425 & 0.347 & 0.43 & 0.503 & $-0.003$ \\
-\best{F3: lookup + face, no pose} & \best{0.411} & 0.347 & 0.44 & 0.476 & $+0.011$\ci{-0.011}{+0.029} \\
+F0: residual + speed, no face & 0.434 & 0.568 & 0.637 & 0.359 & 0.36 & 0.510 & $-0.012$ \\
+F1: + face $\to$ valence & 0.430 & 0.565 & 0.640 & 0.346 & 0.45 & 0.513 & $-0.008$ \\
+F2: + face $\to$ both & 0.425 & 0.559 & \best{0.656} & 0.347 & 0.43 & 0.503 & $-0.003$ \\
+\best{F3: lookup + face, no pose} & \best{0.411} & \best{0.558} & 0.624 & 0.347 & 0.44 & 0.476 & $+0.011$\ci{-0.011}{+0.029} \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
 \clearpage
