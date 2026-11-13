@@ -33,6 +33,16 @@ INDICATORS = (
     "no_event",
 )
 CONTEXT = INDICATORS[:4]  # annotation-model input; no_event is all four at zero
+# Header prefixes of a single annotator's sheet (cells are `value:confidence`).
+SINGLE_ANNOTATOR_COLUMNS = {
+    "Emotional Effect (Valence": "valence",
+    "Emotional Effect (Arousal": "arousal",
+    "social interaction": "social_interaction",
+    "auditory event": "auditory_event",
+    "activity/object change": "activity_object_change",
+    "visual/media event": "visual_media_event",
+    "No Event": "no_event",
+}
 # The same footage filed under two categories: one participant and recording.
 DUPLICATE_VIDEOS = {"183_v_HandAction_05_0": "109_v_ArmFlapping_59"}
 FACE_FEATURES = ("embedding", "probs")
@@ -51,6 +61,52 @@ def load_annotations(path: Path) -> dict[str, dict]:
     header = next(rows)
     records = (dict(zip(header, row)) for row in rows)
     return {r["clip_name"]: r for r in records if r["clip_name"]}
+
+
+def load_single_annotator(
+    path: Path, annotator: str
+) -> tuple[dict[str, dict], list[tuple[str, str]]]:
+    """One annotator's `value:confidence` sheet, as records like `load_annotations`.
+
+    Only the value before the colon is used. Indicators become 0/1 columns; the
+    valence/arousal cells become that annotator's votes, and the label is the
+    vote on the [-1, 1] scale. Clips are dropped if No event is 1 alongside
+    another indicator, or if valence or arousal is unknown.
+    """
+    workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    rows = workbook.worksheets[0].iter_rows(values_only=True)
+    header = next(rows)
+    columns = {}
+    for index, name in enumerate(header):
+        for prefix, key in SINGLE_ANNOTATOR_COLUMNS.items():
+            if name and str(name).startswith(prefix):
+                columns[key] = index
+    missing = set(SINGLE_ANNOTATOR_COLUMNS.values()) - set(columns)
+    if missing:
+        raise ValueError(f"{path}: no column for {sorted(missing)}")
+    records, excluded = {}, []
+    for row in rows:
+        if not row[0]:
+            continue
+        clip = row[0]
+        cells = {key: row[i] for key, i in columns.items()}
+        value = {key: str(cell).split(":", 1)[0].strip() for key, cell in cells.items()}
+        record = {"clip_name": clip, "Category": row[1], "FolderName": row[2]}
+        record.update({k: int(value[k]) for k in INDICATORS})
+        if record["no_event"] and any(record[k] for k in CONTEXT):
+            excluded.append((clip, "no_event is 1 alongside another indicator"))
+            continue
+        for target in annotator_votes.TARGETS:
+            vote = annotator_votes.VOTE_VALUES[target].get(value[target])
+            if vote is None:
+                break
+            record[target] = float(vote)
+            record[f"{target}__{annotator}"] = cells[target]
+        else:
+            records[clip] = {**record, "needs_review": None}
+            continue
+        excluded.append((clip, f"unknown {target} ({value[target]})"))
+    return records, excluded
 
 
 def load_event_texts(path: Path) -> dict[str, str]:
@@ -252,12 +308,32 @@ def main(argv: list[str] | None = None) -> None:
         choices=("clip-vit-l-14", "indicators"),
         default="clip-vit-l-14",
     )
+    parser.add_argument(
+        "--annotations",
+        type=Path,
+        metavar="XLSX",
+        help="one annotator's value:confidence sheet (e.g. ContextAnnotation_Olivia_v3"
+        ".xlsx under --dataset) instead of the three-annotator consensus",
+    )
+    parser.add_argument(
+        "--annotator", default="Olivia", help="name for --annotations' votes"
+    )
     args = parser.parse_args(argv)
     if not 0 <= args.val_fraction < 1:
         parser.error("val-fraction must be in [0, 1)")
+    if args.annotations and args.text_encoder != "indicators":
+        parser.error(
+            "the event texts follow the consensus; use --text-encoder indicators"
+        )
 
     pose_root = args.dataset / args.poses
-    annotations = load_annotations(args.dataset / "Final_Annotation_v2.xlsx")
+    excluded = []
+    if args.annotations:
+        annotations, excluded = load_single_annotator(
+            args.dataset / args.annotations, args.annotator
+        )
+    else:
+        annotations = load_annotations(args.dataset / "Final_Annotation_v2.xlsx")
     qc = load_qc(pose_root)
     if args.text_encoder == "indicators":
         texts, encoder = {}, "indicators:" + "|".join(INDICATORS)
@@ -272,7 +348,6 @@ def main(argv: list[str] | None = None) -> None:
         args.seed,
     )
     manifests: dict[str, list[dict]] = {"train": [], "val": [], "test": []}
-    excluded = []
     for clip, ann in sorted(annotations.items()):
         source = pose_root / ann["FolderName"] / f"{clip}.npz"
         if args.require_qc and not qc[clip]:
@@ -324,6 +399,9 @@ def main(argv: list[str] | None = None) -> None:
                 "joint_order": sample["joint_order"],
                 **{k: f"{v:.2f}" for k, v in sample["timing"].items()},
                 "category": ann["Category"],
+                # Lookup key: the indicators that are 1 (residual/baseline grouping).
+                "context_combination": "+".join(k for k in CONTEXT if ann[k])
+                or "no_event",
                 "pose_qc_ok": str(qc[clip]).lower(),
                 "pose_filled_frac": f"{sample['filled_frac']:.3f}",
                 "text_encoder": encoder,

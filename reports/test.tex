@@ -182,24 +182,24 @@ $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & All four streams & 6
 
 \begin{table}[!htbp]
 \centering
-\caption{\textbf{Phase 1 architecture comparison: regression of consensus valence and arousal} (cross-validated, 5 seeds). Lower MAE and higher CCC are better.}
+\caption{\textbf{Phase 1 architecture comparison: regression of consensus valence and arousal} (cross-validated, 5 seeds). Lower MAE and RMSE and higher CCC and mAP are better.}
 \label{tab:spec}
 \resizebox{\linewidth}{!}{%
-\begin{tabular}{llcccc}
+\begin{tabular}{llccccc}
 \toprule
-Model & Training & Mean MAE & V MAE / CCC & A MAE / CCC \\
+Model & Training & Mean MAE & Mean RMSE & mAP & V MAE / RMSE / CCC & A MAE / RMSE / CCC \\
 \midrule
-\code{text\_attention} (CLIP) & default & 0.483 & 0.400 / $-0.06$ & 0.567 / $-0.04$ \\
-\code{annotation\_attention} & default & 0.482 & 0.409 / $-0.04$ & 0.554 / $0.02$ \\
-\code{annotation\_film} & default & 0.496 & 0.421 / $-0.08$ & 0.572 / $0.03$ \\
-Pose only & default & 0.496 & 0.428 / $-0.12$ & 0.563 / $0.01$ \\
-\code{text\_attention} (CLIP) & regularised & 0.467 & 0.383 / $-0.03$ & 0.551 / $-0.01$ \\
-\code{annotation\_attention} & regularised & 0.468 & 0.383 / $-0.01$ & 0.553 / $-0.03$ \\
-\code{annotation\_film} & regularised & 0.468 & 0.389 / $0.03$ & 0.547 / $0.07$ \\
-Pose only & regularised & 0.468 & 0.384 / $-0.01$ & 0.553 / $-0.03$ \\
+\code{text\_attention} (CLIP) & default & 0.483 & 0.603 & 0.480 & 0.400 / 0.508 / $-0.06$ & 0.567 / 0.697 / $-0.04$ \\
+\code{annotation\_attention} & default & 0.482 & 0.587 & 0.514 & 0.409 / 0.502 / $-0.04$ & 0.554 / 0.672 / $0.02$ \\
+\code{annotation\_film} & default & 0.496 & 0.611 & 0.518 & 0.421 / 0.520 / $-0.08$ & 0.572 / 0.701 / $0.03$ \\
+Pose only & default & 0.496 & 0.606 & 0.503 & 0.428 / 0.527 / $-0.12$ & 0.563 / 0.685 / $0.01$ \\
+\code{text\_attention} (CLIP) & regularised & 0.467 & 0.585 & 0.499 & 0.383 / 0.500 / $-0.03$ & 0.551 / \best{0.669} / $-0.01$ \\
+\code{annotation\_attention} & regularised & 0.468 & 0.590 & 0.490 & 0.383 / 0.496 / $-0.01$ & 0.553 / 0.683 / $-0.03$ \\
+\code{annotation\_film} & regularised & 0.468 & 0.581 & 0.582 & 0.389 / 0.483 / $0.03$ & 0.547 / 0.679 / $0.07$ \\
+Pose only & regularised & 0.468 & 0.590 & 0.490 & 0.384 / 0.497 / $-0.01$ & 0.553 / 0.682 / $-0.03$ \\
 \midrule
-Overall median & -- & 0.464 & 0.373 / $0.00$ & 0.555 / $-0.08$ \\
-\best{Context lookup} & -- & \best{0.425} & \best{0.351} / \best{0.34} & \best{0.498} / \best{0.15} \\
+Overall median & -- & 0.464 & 0.604 & 0.490 & 0.373 / 0.495 / $0.00$ & 0.555 / 0.713 / $-0.08$ \\
+\best{Context lookup} & -- & \best{0.425} & \best{0.572} & \best{0.585} & \best{0.351} / \best{0.462} / \best{0.34} & \best{0.498} / 0.681 / \best{0.15} \\
 \bottomrule
 \end{tabular}%
 }
@@ -222,10 +222,16 @@ Overall median & -- & 0.464 & 0.373 / $0.00$ & 0.555 / $-0.08$ \\
   \item Regularised: width 64, dropout 0.3, weight decay 0.05, learning rate $3\times10^{-4}$, pose augmentation.
 \end{itemize}
 \emph{References:} the overall median and the context lookup (median label per indicator combination, fitted on the training folds) are non-learned.
-\emph{Metrics:} MAE is the mean absolute error (lower is better) and CCC the concordance correlation coefficient (higher is better; 0 for a constant prediction). Mean MAE averages valence (V) and arousal (A).
+\emph{Metrics:}
+\begin{itemize}
+  \item MAE is the mean absolute error and RMSE the root-mean-square error (both lower is better; RMSE penalises large errors more). Mean MAE and mean RMSE average valence (V) and arousal (A).
+  \item CCC is the concordance correlation coefficient (higher is better; 0 for a constant prediction).
+  \item mAP is the mean over V and A of the average precision with which the prediction ranks the clips with a positive consensus label (positive valence; high arousal) above the rest (higher is better). A constant prediction scores the positive share, 0.78 for valence and 0.20 for arousal, so mAP 0.49.
+\end{itemize}
+Bold marks the best value in each column.
 \emph{Findings:}
 \begin{itemize}
-  \item No network beats the lookup, which is in bold as the best row.
+  \item No network beats the lookup, which is in bold as the best row on mean MAE, mean RMSE and mAP.
   \item CLIP text and the indicators perform alike, because the event sentences are generated from the indicators.
   \item FiLM does not help.
   \item Regularisation lowers every network's mean MAE by about 0.015, mostly by pulling predictions toward a constant.
@@ -237,20 +243,22 @@ Overall median & -- & 0.464 & 0.373 / $0.00$ & 0.555 / $-0.08$ \\
 \centering
 \caption{\textbf{Phase 1: residual learning, L1 loss and a real-time speed channel} (regression, cross-validated, 5 seeds). Gain is the reduction in mean MAE relative to the lookup.}
 \label{tab:speed}
-\begin{tabular}{lcccc}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lcccccc}
 \toprule
-Configuration & Mean MAE & V MAE / CCC & A MAE / CCC & Gain vs lookup \\
+Configuration & Mean MAE & Mean RMSE & mAP & V MAE / RMSE / CCC & A MAE / RMSE / CCC & Gain vs lookup \\
 \midrule
-\best{Context lookup} & \best{0.425} & 0.351 / 0.34 & 0.498 / 0.15 & -- \\
-S6: residual + speed, L1 & 0.434 & 0.359 / 0.36 & 0.510 / 0.19 & $-0.009$\ci{-0.049}{+0.028} \\
-S4: residual + speed, MSE & 0.436 & 0.362 / 0.38 & 0.511 / 0.25 & $-0.012$\ci{-0.054}{+0.033} \\
-S5: as S4, pose only & 0.436 & 0.362 / 0.38 & 0.509 / 0.25 & $-0.011$\ci{-0.054}{+0.033} \\
-Residual, no speed (MSE) & 0.451 & -- & -- & -- \\
-Residual, no speed (L1) & 0.445 & 0.373 / 0.27 & 0.517 / 0.15 & -- \\
-S2: speed + regularisation & 0.445 & 0.380 / 0.09 & 0.509 / 0.10 & $-0.020$ \\
-S1: speed, no regularisation & 0.459 & 0.411 / 0.01 & 0.507 / 0.17 & $-0.034$ \\
+\best{Context lookup} & \best{0.425} & 0.572 & 0.585 & 0.351 / 0.462 / 0.34 & 0.498 / 0.681 / 0.15 & -- \\
+S6: residual + speed, L1 & 0.434 & 0.568 & 0.637 & 0.359 / 0.458 / 0.36 & 0.510 / 0.679 / 0.19 & $-0.009$\ci{-0.049}{+0.028} \\
+S4: residual + speed, MSE & 0.436 & 0.558 & \best{0.641} & 0.362 / 0.455 / 0.38 & 0.511 / 0.660 / 0.25 & $-0.012$\ci{-0.054}{+0.033} \\
+S5: as S4, pose only & 0.436 & \best{0.557} & 0.639 & 0.362 / 0.455 / 0.38 & 0.509 / 0.659 / 0.25 & $-0.011$\ci{-0.054}{+0.033} \\
+Residual, no speed (MSE) & 0.451 & 0.574 & 0.612 & 0.372 / 0.471 / 0.30 & 0.530 / 0.676 / 0.19 & -- \\
+Residual, no speed (L1) & 0.445 & 0.587 & 0.605 & 0.373 / 0.485 / 0.27 & 0.517 / 0.688 / 0.15 & -- \\
+S2: speed + regularisation & 0.445 & 0.568 & 0.556 & 0.380 / 0.480 / 0.09 & 0.509 / 0.656 / 0.10 & $-0.020$ \\
+S1: speed, no regularisation & 0.459 & 0.581 & 0.575 & 0.411 / 0.499 / 0.01 & 0.507 / 0.662 / 0.17 & $-0.034$ \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \tabledesc{The protocol and targets are those of Table~\ref{tab:spec}: regression of the consensus labels on 153 development clips, video-grouped 5-fold cross-validation on the original folds, predictions averaged over 5 seeds.
 \emph{Configurations:}
 \begin{itemize}
@@ -260,29 +268,32 @@ S1: speed, no regularisation & 0.459 & 0.411 / 0.01 & 0.507 / 0.17 & $-0.034$ \\
   \item Regularisation: as in Table~\ref{tab:spec}.
   \item S5: S4 with the context removed from the network; the residual still supplies the lookup.
 \end{itemize}
-\emph{Metrics:} MAE (lower is better) and CCC (higher is better) for valence (V) and arousal (A). Gain is the lookup's mean MAE minus the model's (positive means better than the lookup), with a 95\% participant-bootstrap interval where computed.
+\emph{Metrics:} MAE, RMSE (lower is better) and CCC (higher is better) for valence (V) and arousal (A); mean RMSE and mAP as in Table~\ref{tab:spec}. Gain is the lookup's mean MAE minus the model's (positive means better than the lookup), with a 95\% participant-bootstrap interval where computed. Bold marks the best value in each column.
 \emph{Findings:}
 \begin{itemize}
   \item The speed channel was the first input through which the networks used pose: it lifted arousal CCC from about 0 to 0.17, and to 0.25 with the residual.
   \item That gain never became a lower MAE: every network ties or loses to the lookup (bold), and every interval includes zero.
+  \item On mean RMSE and mAP the residual + speed networks edge past the lookup (S4: 0.558 vs 0.572 and 0.641 vs 0.585), but neither difference is significant (RMSE gain $+0.014$\ci{-0.025}{+0.051}, mAP gain $+0.056$\ci{-0.014}{+0.154}).
   \item L1 loss closed only a little of the gap.
 \end{itemize}}
 \end{table}
 
 % \begin{table}[!htbp]
 % \centering
-% \caption{\textbf{Held-out test set, scored once} (29 usable test clips from 20 videos not seen in development; regression of the consensus labels). All predictors were fitted on the 153 development clips, and the candidate was fixed in advance from cross-validation: the lookup for valence and a linear model on context plus nine hand-crafted movement features per window (head, elbow, wrist and body speed, wrist height and spread, head bob) for arousal. The movement signal did not replicate (arousal CCC 0.00); the lookup's cross-validated performance carried over, making it the only predictor confirmed on new videos. MAE lower is better; CCC higher is better (0.00 = no agreement). Bold: best.}
+% \caption{\textbf{Held-out test set, scored once} (29 usable test clips from 20 videos not seen in development; regression of the consensus labels). All predictors were fitted on the 153 development clips, and the candidate was fixed in advance from cross-validation: the lookup for valence and a linear model on context plus nine hand-crafted movement features per window (head, elbow, wrist and body speed, wrist height and spread, head bob) for arousal. The movement signal did not replicate (arousal CCC 0.00); the lookup's cross-validated performance carried over, making it the only predictor confirmed on new videos. MAE and RMSE lower is better; CCC higher is better (0.00 = no agreement); mAP higher is better (defined as in Table~\ref{tab:spec}; a constant prediction scores the test clips' positive share, 0.79 for valence and 0.28 for arousal, so mAP 0.53). Bold: best.}
 % \label{tab:test}
-% \begin{tabular}{lccc}
+% \resizebox{\linewidth}{!}{%
+% \begin{tabular}{lccccc}
 % \toprule
-% Predictor & Mean MAE & V MAE / CCC & A MAE / CCC \\
+% Predictor & Mean MAE & Mean RMSE & mAP & V MAE / RMSE / CCC & A MAE / RMSE / CCC \\
 % \midrule
-% Candidate (lookup valence + linear movement arousal) & 0.428 & 0.361 / 0.31 & 0.495 / 0.00 \\
-% \best{Context lookup} & \best{0.389} & 0.361 / 0.31 & \best{0.417} / \best{0.17} \\
-% Overall median & 0.456 & 0.426 / 0.00 & 0.486 / 0.00 \\
-% Linear context + movement (both targets) & 0.450 & 0.406 / 0.12 & 0.495 / 0.00 \\
+% Candidate (lookup valence + linear movement arousal) & 0.428 & 0.553 & 0.606 & 0.361 / 0.509 / 0.31 & 0.495 / 0.596 / 0.00 \\
+% \best{Context lookup} & \best{0.389} & \best{0.538} & \best{0.619} & 0.361 / 0.509 / 0.31 & \best{0.417} / \best{0.567} / \best{0.17} \\
+% Overall median & 0.456 & 0.560 & 0.534 & 0.426 / 0.510 / 0.00 & 0.486 / 0.610 / 0.00 \\
+% Linear context + movement (both targets) & 0.450 & 0.544 & 0.613 & 0.406 / \best{0.491} / 0.12 & 0.495 / 0.596 / 0.00 \\
 % \bottomrule
-% \end{tabular}
+% \end{tabular}%
+% }
 % \end{table}
 
 \clearpage
@@ -294,38 +305,42 @@ S1: speed, no regularisation & 0.459 & 0.411 / 0.01 & 0.507 / 0.17 & $-0.034$ \\
 % \centering
 % \caption{\textbf{Frozen face, video and audio features as a linear correction on the lookup} (regression of the consensus labels, 153 development clips, video-grouped 5-fold cross-validation on the original folds). Each embedding feeds an L1-penalised linear model that corrects the training folds' lookup.
 % \emph{Features:} face = crops at the tracked face keypoints embedded with the FER ViT \code{trpakov/vit-face-expression} (768-d [CLS]) or its 7 expression probabilities; video = V-JEPA 2 on a child crop; audio = AST embedding, or AudioSet event probabilities plus loudness.
-% \emph{Metrics:} MAE (lower is better) and CCC (higher is better) for valence (V) and arousal (A). Gain = lookup mean MAE minus model mean MAE (positive = better), with a 95\% participant-bootstrap interval for the face rows. Bold: best.}
+% \emph{Metrics:} MAE, RMSE (lower is better) and CCC (higher is better) for valence (V) and arousal (A); mean RMSE and mAP as in Table~\ref{tab:spec}. Gain = lookup mean MAE minus model mean MAE (positive = better), with a 95\% participant-bootstrap interval for the face rows. Bold: best.}
 % \label{tab:media}
-% \begin{tabular}{lcccc}
+% \resizebox{\linewidth}{!}{%
+% \begin{tabular}{lcccccc}
 % \toprule
-% Input & Mean MAE & V MAE / CCC & A MAE / CCC & Gain vs lookup \\
+% Input & Mean MAE & Mean RMSE & mAP & V MAE / RMSE / CCC & A MAE / RMSE / CCC & Gain vs lookup \\
 % \midrule
-% Context lookup & 0.425 & 0.351 / 0.34 & 0.498 / 0.15 & -- \\
-% \best{Face, FER embedding} & \best{0.420} & \best{0.328} / \best{0.47} & 0.511 / 0.21 & $+0.005$\ci{-0.014}{+0.026} \\
-% Face, 7 expression probabilities & 0.421 & 0.330 / 0.41 & 0.512 / 0.16 & $+0.004$\ci{-0.024}{+0.026} \\
-% Video, V-JEPA 2 (child crop) & 0.426 & 0.351 / 0.34 & 0.501 / 0.15 & $-0.001$ \\
-% Audio, AudioSet probabilities + loudness & 0.429 & 0.357 / 0.32 & 0.502 / 0.14 & $-0.005$ \\
-% Audio, AST embedding & 0.437 & 0.353 / 0.34 & 0.520 / 0.15 & $-0.012$ \\
+% Context lookup & 0.425 & 0.572 & 0.585 & 0.351 / 0.462 / 0.34 & 0.498 / 0.681 / 0.15 & -- \\
+% \best{Face, FER embedding} & \best{0.420} & \best{0.559} & 0.615 & \best{0.328} / \best{0.434} / \best{0.47} & 0.511 / 0.683 / 0.21 & $+0.005$\ci{-0.014}{+0.026} \\
+% Face, 7 expression probabilities & 0.421 & 0.562 & \best{0.624} & 0.330 / 0.446 / 0.41 & 0.512 / \best{0.679} / 0.16 & $+0.004$\ci{-0.024}{+0.026} \\
+% Video, V-JEPA 2 (child crop) & 0.426 & 0.572 & 0.587 & 0.351 / 0.463 / 0.34 & 0.501 / 0.681 / 0.15 & $-0.001$ \\
+% Audio, AudioSet probabilities + loudness & 0.429 & 0.574 & 0.595 & 0.357 / 0.467 / 0.32 & 0.502 / 0.682 / 0.14 & $-0.005$ \\
+% Audio, AST embedding & 0.437 & 0.580 & 0.598 & 0.353 / 0.465 / 0.34 & 0.520 / 0.695 / 0.15 & $-0.012$ \\
 % \bottomrule
-% \end{tabular}
+% \end{tabular}%
+% }
 % \end{table}
 
 % \begin{table}[!htbp]
 % \centering
 % \caption{\textbf{Phase 1: the face stream inside ContextPose} (regression of the consensus labels, 153 development clips, video-grouped 5-fold cross-validation on the original folds, predictions averaged over 5 seeds). The face stream encodes the FER embedding at each of the 32 steps per window, averages the steps that pass the quality gate (frontal face, YuNet detector score $\geq 0.8$, brightness $\geq 40$, sharpness $\geq 10$; 39\% of steps kept, 27 clips with no usable face), and adds a zero-initialised correction to the prediction.
 % \emph{Configurations:} F0 = residual on the lookup + pose with speed, no face; F1 = F0 + face correcting valence only; F2 = F0 + face correcting both targets; F3 = lookup + face correction, no pose.
-% \emph{Metrics:} MAE (lower is better) and valence CCC (higher is better). Gain = mean MAE of the training-fold lookup these models start from (0.422 mean; 0.368 valence, 0.476 arousal) minus the model's, with a 95\% participant-bootstrap interval for F3. Bold: best.}
+% \emph{Metrics:} MAE, mean RMSE (lower is better), valence CCC and mAP (higher is better; mean RMSE and mAP as in Table~\ref{tab:spec}). Gain = mean MAE of the training-fold lookup these models start from (0.422 mean; 0.368 valence, 0.476 arousal) minus the model's, with a 95\% participant-bootstrap interval for F3. On mean RMSE and mAP, F3 and F2 edge past the lookup of Table~\ref{tab:spec} (0.572 and 0.585), but the intervals include zero (F3: RMSE gain $+0.013$\ci{-0.011}{+0.040}; F2: mAP gain $+0.071$\ci{-0.012}{+0.175}). Bold: best.}
 % \label{tab:face}
-% \begin{tabular}{lccccc}
+% \resizebox{\linewidth}{!}{%
+% \begin{tabular}{lccccccc}
 % \toprule
-% Configuration & Mean MAE & V MAE & V CCC & A MAE & Mean gain vs lookup \\
+% Configuration & Mean MAE & Mean RMSE & mAP & V MAE & V CCC & A MAE & Mean gain vs lookup \\
 % \midrule
-% F0: residual + speed, no face & 0.434 & 0.359 & 0.36 & 0.510 & $-0.012$ \\
-% F1: + face $\to$ valence & 0.430 & 0.346 & 0.45 & 0.513 & $-0.008$ \\
-% F2: + face $\to$ both & 0.425 & 0.347 & 0.43 & 0.503 & $-0.003$ \\
-% \best{F3: lookup + face, no pose} & \best{0.411} & 0.347 & 0.44 & 0.476 & $+0.011$\ci{-0.011}{+0.029} \\
+% F0: residual + speed, no face & 0.434 & 0.568 & 0.637 & 0.359 & 0.36 & 0.510 & $-0.012$ \\
+% F1: + face $\to$ valence & 0.430 & 0.565 & 0.640 & 0.346 & 0.45 & 0.513 & $-0.008$ \\
+% F2: + face $\to$ both & 0.425 & 0.559 & \best{0.656} & 0.347 & 0.43 & 0.503 & $-0.003$ \\
+% \best{F3: lookup + face, no pose} & \best{0.411} & \best{0.558} & 0.624 & 0.347 & 0.44 & 0.476 & $+0.011$\ci{-0.011}{+0.029} \\
 % \bottomrule
-% \end{tabular}
+% \end{tabular}%
+% }
 % \end{table}
 
 \clearpage
@@ -398,6 +413,131 @@ Call & Approach & Balanced accuracy & AUC \\
 \end{itemize}}
 \end{table}
 
+\begin{table}[!htbp]
+\centering
+\caption{\textbf{External evaluation on EMOTIC: frozen EmotionCLIP and face features} on binary valence and arousal calls (official splits, test set scored once; no annotation or VLM stream). Balanced accuracy with 95\% intervals, and AUC.}
+\label{tab:emotic}
+\small
+\begin{tabular}{llcccc}
+\toprule
+ & & \multicolumn{2}{c}{Valence: positive vs not} & \multicolumn{2}{c}{Arousal: high vs low} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+Features & PCA & Bal. acc. & AUC & Bal. acc. & AUC \\
+\midrule
+\multicolumn{6}{l}{\emph{All test persons} (valence $n{=}4{,}849$, 52\% positive; arousal $n{=}5{,}103$, 57\% high)} \\
+Always majority & -- & 50\% & 0.50 & 50\% & 0.50 \\
+EmotionCLIP & 8--16 & 64--65\%\ci{63}{66} & 0.71 & 72\%\ci{70}{73} & 0.77--0.79 \\
+Face & 8--16 & 66\%\ci{64}{67} & 0.71 & 62--64\%\ci{61}{66} & 0.66--0.68 \\
+EmotionCLIP + face & 8--16 & \best{66--67\%}\ci{65}{68} & \best{0.75} & 72\%\ci{71}{74} & 0.78--0.79 \\
+EmotionCLIP & none & 65\%\ci{63}{66} & 0.73 & \best{74\%}\ci{73}{75} & \best{0.81} \\
+Face & none & 65\%\ci{63}{66} & 0.70 & 64\%\ci{62}{65} & 0.68 \\
+EmotionCLIP + face & none & 65\%\ci{64}{67} & 0.73 & 73\%\ci{71}{74} & 0.79 \\
+\midrule
+\multicolumn{6}{l}{\emph{Children only} (valence $n{=}406$, 58\% positive; arousal $n{=}423$, 46\% high)} \\
+EmotionCLIP & 8--16 & 56--57\%\ci{51}{62} & 0.63--0.64 & \best{70\%}\ci{65}{74} & 0.73--0.74 \\
+Face & 8--16 & \best{66\%}\ci{61}{71} & \best{0.72--0.73} & 55--56\%\ci{50}{61} & 0.58--0.59 \\
+EmotionCLIP + face & 8--16 & 59--60\%\ci{54}{64} & 0.71 & 69--70\%\ci{65}{73} & 0.73--0.75 \\
+EmotionCLIP & none & 58\%\ci{53}{63} & 0.66 & 69\%\ci{65}{73} & \best{0.76} \\
+Face & none & 62\%\ci{58}{67} & 0.69 & 58\%\ci{53}{63} & 0.62 \\
+EmotionCLIP + face & none & 62\%\ci{57}{66} & 0.69 & \best{70\%}\ci{65}{74} & 0.74 \\
+\bottomrule
+\end{tabular}
+\tabledesc{Each row is a class-balanced logistic regression on frozen features of one annotated person in an EMOTIC still image (persons in context, in images from MSCOCO, ADE20K and EMODB). EMOTIC has no environmental-event annotation or VLM descriptions yet, so neither stream is used. It has no video or pose either, so the temporal parts of the ASD setup (pre/event/post windows, EmotionCLIP's temporal transformer, ContextPose and the recurrent baselines) do not apply.
+\emph{Features:}
+\begin{itemize}
+  \item EmotionCLIP: the frozen ViT-B/32 image encoder on a 224\,px square crop (0.875 $\times$ the image's short side) centred on the person's box, with the box as the binary subject mask. This is the crop and mask of Table~\ref{tab:eclip}, applied to one image.
+  \item Face: the best YuNet face whose centre lies inside the person's box, cropped at 1.8 $\times$ the face box and embedded with the frozen FER ViT (768-d [CLS]). It is kept only if it passes the ASD quality gate (detector score $\geq 0.8$, brightness $\geq 40$, sharpness $\geq 10$), as 71\% of test persons do. Missing faces are mean-imputed and flagged.
+\end{itemize}
+\emph{Model:} as in Table~\ref{tab:eclip}, each block is reduced by PCA to 8 or 16 components (or not reduced) and standardised. The regularisation strength is chosen by validation log-loss on a train-only fit; the model is then refitted on train + val (18,396 persons) and scored once on test, with calls at probability 0.5.
+\emph{Labels:} EMOTIC's continuous valence and arousal (1--10; averaged over annotators on test), cut at the midpoint: positive / high above 5.5, not positive / low below. Persons at exactly 5.5 are ties and are excluded.
+\emph{Data:} the framesdb images are not in our copy of EMOTIC, so the table uses the 15,999 train, 2,397 val and 5,369 test persons whose images are present (74\% of test persons). Children are EMOTIC's ``Kid'' age group.
+\emph{Cells:} an 8--16 cell gives the range over the two PCA sizes, and its bracket spans both sizes' 95\% image-bootstrap intervals (2000 draws). AUC intervals are about $\pm 0.015$ on all persons and $\pm 0.05$ on children. Bold marks the best result per column within each block.
+\emph{Findings:}
+\begin{itemize}
+  \item Arousal comes from EmotionCLIP (AUC 0.77--0.81), as on the ASD clips; adding the face changes little.
+  \item Unlike on the ASD clips, EmotionCLIP also carries valence (AUC 0.71--0.73), and EmotionCLIP + face is best for valence overall.
+  \item For children, the face carries valence (66\%, AUC 0.72--0.73), and adding EmotionCLIP lowers it to 59--60\%, as adding EmotionCLIP lowered valence on the ASD clips.
+  \item The binary cut and the image subset are ours, so these numbers are not comparable with published EMOTIC results (26-category mAP and continuous-dimension error).
+\end{itemize}}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\caption{\textbf{AffectGPT descriptions as a ContextPose stream} (G, in place of the VLM stream V of Table~\ref{tab:streams}; cross-validated, 5-seed ensembles). Balanced accuracy with 95\% intervals, and AUC; the last two columns repeat the matching V row.}
+\label{tab:affectgpt}
+\small
+\setlength{\tabcolsep}{4pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lcccccc}
+\toprule
+ & \multicolumn{2}{c}{Valence: positive vs not} & \multicolumn{2}{c}{Arousal: high vs low} & \multicolumn{2}{c}{Same row with V} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Streams & Bal. acc. & AUC & Bal. acc. & AUC & Valence & Arousal \\
+\midrule
+Annotation lookup (no network) & 53\% & 0.55 & 68\% & 0.63 & & \\
+\midrule
+G only & 44\%\ci{35}{52} & 0.42 & 53\%\ci{43}{64} & 0.40 & 48 / .53 & 76 / .69 \\
+Pose + G & 47\%\ci{33}{59} & 0.52 & 57\%\ci{46}{69} & 0.55 & 48 / .52 & 60 / .55 \\
+G + face & \best{62\%}\ci{49}{73} & \best{0.72} & 67\%\ci{56}{77} & 0.70 & 62 / .74 & 69 / .72 \\
+Annotation + G & 57\%\ci{45}{68} & 0.59 & 54\%\ci{41}{72} & 0.58 & 61 / .60 & 69 / .75 \\
+\midrule
+Pose + G + face & 49\%\ci{35}{63} & 0.58 & 64\%\ci{52}{75} & 0.64 & 49 / .58 & 64 / .64 \\
+Pose + annotation + G & 57\%\ci{45}{67} & 0.60 & 60\%\ci{48}{73} & 0.67 & 58 / .59 & 59 / .67 \\
+Annotation + G + face & 60\%\ci{46}{71} & 0.70 & \best{71\%}\ci{61}{81} & \best{0.72} & 64 / .70 & 69 / .75 \\
+\midrule
+All four (P + A + G + F) & 58\%\ci{44}{70} & 0.66 & 56\%\ci{43}{70} & 0.70 & 58 / .66 & 56 / .70 \\
+\bottomrule
+\end{tabular}%
+}
+\tabledesc{Each row is ContextPose with AffectGPT's description embedding (G) as the context vector, in the place of the VLM embedding (V) of Table~\ref{tab:streams}. The clips, folds, votes objective, training settings (up to 60 epochs), targets and 5-seed ensembling are those of Table~\ref{tab:streams}. The last two columns repeat the matching V row (balanced accuracy \% / AUC).
+\emph{AffectGPT:} the original model (MER-Caption+ raw-frame checkpoint, epoch 30: Qwen2.5-7B with CLIP ViT-L/14 frame and HuBERT-large audio encoders), run frozen on each whole context clip (8 sampled frames and the soundtrack). The prompt asks for a factual description of the child and the surroundings, and for the four event labels, without inferring emotion. The description is embedded with \code{all-MiniLM-L6-v2} (384-d), as the VLM descriptions are; this is the embedding of the generated text, not AffectGPT's internal representation.
+\emph{Offsets:} as in Table~\ref{tab:streams}, rows with the annotation start from the lookup, and rows without it from a constant offset, so G replaces the annotation there.
+\emph{Findings:}
+\begin{itemize}
+  \item G alone ranks clips below chance (AUC 0.40--0.42), where V alone gave the best arousal calls (76\%).
+  \item Annotation + G is below the lookup for arousal (54\% vs 68\%; gain $-13\%\ci{-26}{-1}$); the network keeps a median epoch of 1, so it finds nothing to learn.
+  \item With the face, G matches the face alone (Table~\ref{tab:streams}: 60\% / 0.73 and 65\% / 0.69); annotation + G + face is close to V3.
+  \item In the rows with pose, the context vector barely changes the predictions (a median 0.003 log-odds from the V runs), so they equal or nearly equal their V rows and do not compare G with V.
+  \item AffectGPT's own event labels agree with the annotators near chance (balanced accuracy 54--59\% per indicator): it marks most clips as having each event.
+\end{itemize}}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\caption{\textbf{Does AffectGPT add to the VLM? Linear probe with and without the AffectGPT embedding} (cross-validated). Balanced accuracy (spread over fold arrangements) and AUC; each ``+ AffectGPT'' row follows the same set without it.}
+\label{tab:affectgpt_linear}
+\small
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{2}{c}{Valence: positive vs not} & \multicolumn{2}{c}{Arousal: high vs low} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Features & Bal. acc. & AUC & Bal. acc. & AUC \\
+\midrule
+Annotation & 51\% (48--59) & 0.50 & 67\% (66--68) & 0.65 \\
+AffectGPT & 43--45\% (40--50) & 0.41--0.45 & 41--42\% (36--51) & 0.36--0.39 \\
+\midrule
+VLM & 48--52\% (44--56) & 0.49--0.53 & 58--63\% (51--66) & 0.64--0.71 \\
+\quad + AffectGPT & 50\% (45--56) & 0.48--0.49 & 55--56\% (49--61) & 0.57--0.60 \\
+Annotation + VLM & 48--51\% (44--58) & 0.49--0.53 & 60--67\% (52--71) & 0.69--0.75 \\
+\quad + AffectGPT & 49--50\% (44--56) & 0.48--0.49 & 54--58\% (46--60) & 0.58--0.64 \\
+VLM + face & 57--61\% (54--65) & 0.61--0.65 & 63--68\% (57--73) & 0.72--0.73 \\
+\quad + AffectGPT & 56--58\% (53--64) & 0.59--0.60 & 57--61\% (54--64) & 0.64--0.66 \\
+Annotation + VLM + face & 56--62\% (54--66) & 0.60--0.64 & 64--73\% (60--75) & \best{0.73--0.78} \\
+\quad + AffectGPT & 56--58\% (53--62) & 0.59--0.60 & 58--64\% (53--67) & 0.66--0.70 \\
+\midrule
+Annotation + face (reference) & 59--61\% (57--65) & 0.63--0.64 & 65--68\% (61--74) & 0.70--0.73 \\
+\bottomrule
+\end{tabular}
+\tabledesc{Each row is a class-balanced logistic regression on the listed blocks, as in Table~\ref{tab:eclip}: the one-hot indicator combination (annotation), the FER face embedding with a has-face flag, and the 384-d VLM and AffectGPT description embeddings (Table~\ref{tab:affectgpt}). Each embedding is reduced in-fold by PCA to 8 or 16 components and standardised; the regularisation strength is chosen by log-loss on an inner fold. The clips and binary targets are those of Table~\ref{tab:streams}.
+\emph{Cells:} a range spans the two PCA sizes, each averaged over 5 fold arrangements; parentheses give the spread over those arrangements. Bold marks the best arousal AUC.
+\emph{Findings:}
+\begin{itemize}
+  \item AffectGPT alone ranks clips below chance (AUC 0.36--0.45), which suggests cues tied to particular videos that reverse on new ones.
+  \item Adding it lowers every VLM combination, most for arousal (AUC $-0.07$ to $-0.11$): annotation + VLM + face falls from 0.73--0.78 to 0.66--0.70.
+  \item The linear VLM is weaker than the network VLM (Table~\ref{tab:streams}), so this probe tests whether AffectGPT adds to the VLM, not how well the VLM can do.
+\end{itemize}}
+\end{table}
+
 % \begin{table}[!htbp]
 % \centering
 % \caption{\textbf{VLM scene descriptions and a second (uploaded) face model on the binary calls} (153 development clips, video-grouped 5-fold cross-validation with duplicate videos merged, votes objective, 5-seed ensembles, V3 training settings). Cells are balanced accuracy / AUC.
@@ -466,5 +606,83 @@ Annotation + VLM + face & 64 / .69 & 61 / .65 & 60 / .64 & 69 / .75 & 64 / .69 &
   \item Pose costs the recurrent models less than ContextPose, but none of their results beats the plain lookup's arousal (68\%).
 \end{itemize}}
 \end{table}
+
+\clearpage
+%=====================================================================
+% Valence x arousal quadrants
+%=====================================================================
+
+\begin{table}[!htbp]
+\centering
+\caption{\textbf{Valence $\times$ arousal quadrants: the stream-ablation models scored on the joint call} (cross-validated, 5-seed ensembles). Accuracy, balanced accuracy over the four quadrants (chance 25\%) and recall within each quadrant.}
+\label{tab:quadrants}
+\small
+\setlength{\tabcolsep}{4pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lcccccc}
+\toprule
+ & & & \multicolumn{4}{c}{Recall within quadrant (\%)} \\
+\cmidrule(lr){4-7}
+ & & & \multicolumn{2}{c}{Positive valence} & \multicolumn{2}{c}{Not positive} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Model & Acc. & Bal. acc. & High ($n{=}28$) & Low ($n{=}72$) & High ($n{=}5$) & Low ($n{=}40$) \\
+\midrule
+Annotators (each vs the other two) & 57\% & 63\% & 57 & 45 & 75 & 75 \\
+Always majority & 50\% & 25\% & 0 & 100 & 0 & 0 \\
+Annotation lookup (no network) & 34\% & 33\%\ci{21}{45} & 36 & 26 & 20 & 50 \\
+\midrule
+Pose only & 26\% & 32\%\ci{12}{45} & 14 & 28 & 60 & 25 \\
+Event annotation only & 38\% & 34\%\ci{22}{47} & 36 & 35 & 20 & 48 \\
+VLM only & 34\% & 41\%\ci{19}{53} & 18 & 44 & \best{80} & 22 \\
+Face only & 32\% & 33\%\ci{23}{44} & \best{68} & 8 & 0 & 55 \\
+\midrule
+Pose + annotation & 34\% & 32\%\ci{22}{42} & 29 & 28 & 20 & 52 \\
+Pose + VLM & 30\% & 42\%\ci{19}{53} & 32 & 25 & \best{80} & 32 \\
+Pose + face & 27\% & 35\%\ci{15}{48} & 29 & 22 & 60 & 30 \\
+Annotation + VLM & \best{50\%} & 39\%\ci{28}{49} & 25 & \best{61} & 20 & 50 \\
+Annotation + face (V3) & 43\% & \best{43\%}\ci{31}{53} & 64 & 29 & 20 & 57 \\
+VLM + face & 40\% & 40\%\ci{29}{51} & 57 & 22 & 20 & \best{62} \\
+\midrule
+Pose + annot.\ + face (full model) & 34\% & 27\%\ci{19}{38} & 29 & 26 & 0 & 55 \\
+Pose + VLM + face & 32\% & 39\%\ci{19}{52} & 32 & 31 & 60 & 32 \\
+Pose + annotation + VLM & 35\% & 33\%\ci{22}{41} & 25 & 28 & 20 & 57 \\
+Annotation + VLM + face & 46\% & 42\%\ci{30}{52} & 50 & 36 & 20 & \best{62} \\
+\midrule
+All four streams & 34\% & 27\%\ci{19}{39} & 29 & 26 & 0 & 55 \\
+\bottomrule
+\end{tabular}%
+}
+\tabledesc{The models are those of Table~\ref{tab:streams}, scored on the joint valence and arousal call instead of on each call separately. Nothing is retrained or re-thresholded.
+\emph{Clips:} the 145 development clips with an annotator majority on both targets (clips tied on either are left out). Their quadrants are very unequal: positive valence with high arousal 28, positive with low arousal 72, not positive with high arousal 5, not positive with low arousal 40.
+\emph{Predicted quadrant:} the pair of the model's own valence and arousal calls (each the majority of the 5 seeds' calls, with thresholds set on each model's training clips).
+\emph{Metrics:}
+\begin{itemize}
+  \item Balanced accuracy is the mean of the four per-quadrant recalls (chance 25\%), with 95\% participant-bootstrap intervals in brackets.
+  \item One clip of the 5-clip quadrant moves its recall by 20 points and balanced accuracy by 5.
+\end{itemize}
+\emph{References:} each annotator against the other two where those two agree on both targets (200 comparisons), always predicting the commonest quadrant, and the lookup's two calls. Bold marks the best model in each column.
+\emph{Findings:}
+\begin{itemize}
+  \item Annotation + face (V3) makes the best joint calls (43\%), but its gain over the lookup includes zero ($+10\ci{-2}{+20}$ points); the annotators reach 63\%.
+  \item VLM only and pose + VLM reach 41--42\% only by placing 4 of the 5 not-positive, high-arousal clips. On the other three quadrants they score 28--30\%, below the lookup (37\%) and V3 (50\%).
+  \item The models over-call high arousal: each target's threshold maximises its own balanced accuracy, which favours the rare high-arousal class. V3 puts 27 of the 72 positive, low-arousal clips in the positive, high-arousal quadrant (Figure~\ref{fig:quadrant_clips}), and only annotation + VLM matches the majority's 50\% accuracy.
+  \item Adding pose lowers the face combinations to 27\% (full model and all four streams), and those models never place a not-positive, high-arousal clip correctly.
+  \item The recurrent baselines of Table~\ref{tab:rnn} do no better: their best joint balanced accuracy is 41\% (GRU) and 40\% (BiLSTM), against 43\% for ContextPose.
+\end{itemize}}
+\end{table}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/quadrant_recall.pdf}
+\caption{\textbf{Recall within each valence $\times$ arousal quadrant} for the references and selected models of Table~\ref{tab:quadrants}. The panels are placed as the quadrants lie on the valence (left to right) and arousal (bottom to top) plane; $n$ is the number of clips in each quadrant. Hatched bars are the references; the dashed line is chance (25\%).}
+\label{fig:quadrant_recall}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.8\linewidth]{figures/quadrant_clips.pdf}
+\caption{\textbf{The 145 development clips on the annotator-vote plane.} Each clip is placed at the share of annotators voting positive valence and high arousal (thirds with three annotators; coincident clips are spread slightly). The lines at one half separate the quadrants. Filled points are clips that V3 (annotation + face) places in the right quadrant; hollow points are its errors.}
+\label{fig:quadrant_clips}
+\end{figure}
 
 \end{document}

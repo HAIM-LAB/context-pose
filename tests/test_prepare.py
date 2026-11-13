@@ -8,8 +8,10 @@ from asd_contextpose import ModelConfig, prepare
 from asd_contextpose.data import PoseDataset, assert_group_separation
 from asd_contextpose.prepare import (
     INDICATORS,
+    SINGLE_ANNOTATOR_COLUMNS,
     TEXT_CSV,
     convert_clip,
+    load_single_annotator,
     main,
     resample,
 )
@@ -230,3 +232,37 @@ def test_face_gate_masks_turned_away_dark_and_blurred_steps(tmp_path):
     assert (regions["pre_face"][1, :-1] == 0.5).all()
     empty = prepare.face_regions(tmp_path / "missing.npz", "embedding", steps)
     assert empty["event_face"].shape == (steps, 769) and not empty["event_face"].any()
+
+
+def test_single_annotator_sheet_uses_values_and_drops_conflicts(tmp_path):
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(
+        ["clip_name", "Category", "FolderName"]
+        + [f"{prefix}[0/1]: ConfScore[1-5]" for prefix in SINGLE_ANNOTATOR_COLUMNS]
+    )
+    # Columns: valence, arousal, social, auditory, object, visual, no event.
+    sheet.append(
+        ["a", "spinning", "train", "0.5:3", "1:2", "1:5", "0:4", "0:5", "1:4", "0:5"]
+    )
+    sheet.append(
+        ["b", "spinning", "train", "1:3", "0:2", "1:5", "0:4", "0:5", "0:4", "1:5"]
+    )
+    sheet.append(
+        ["c", "spinning", "test", "2:3", "0:2", "0:5", "0:4", "0:5", "0:4", "1:5"]
+    )
+    sheet.append(
+        ["d", "spinning", "test", "0:3", "0:2", "0:5", "0:4", "0:5", "0:4", "1:5"]
+    )
+    workbook.save(tmp_path / "sheet.xlsx")
+    records, excluded = load_single_annotator(tmp_path / "sheet.xlsx", "Olivia")
+    assert sorted(records) == ["a", "d"]
+    assert dict(excluded) == {
+        "b": "no_event is 1 alongside another indicator",
+        "c": "unknown valence (2)",
+    }
+    a = records["a"]
+    assert [a[k] for k in INDICATORS] == [1, 0, 0, 1, 0]
+    assert (a["valence"], a["arousal"]) == (0.0, 1.0)  # neutral -> not positive
+    assert (a["valence__Olivia"], a["arousal__Olivia"]) == ("0.5:3", "1:2")
+    assert records["d"]["valence"] == -1.0

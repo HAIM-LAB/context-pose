@@ -49,6 +49,10 @@ def test_annotator_ceiling_scores_each_annotator_against_the_other_two():
     assert ceiling["n"] == 4 and ceiling["accuracy"] == 0.75
 
 
+def test_annotator_ceiling_is_empty_for_a_single_annotator():
+    assert annotator_ceiling([[1], [-1]], "arousal") == {"n": 0}
+
+
 def test_auc_ranks_and_ties():
     labels = np.array([0, 0, 1, 1])
     assert auc(np.array([0.1, 0.2, 0.8, 0.9]), labels) == 1.0

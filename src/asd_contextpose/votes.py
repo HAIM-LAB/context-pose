@@ -87,7 +87,7 @@ def annotator_ceiling(all_votes: list[list[int | None]], target: str) -> dict:
     for votes in all_votes:
         for i, own in enumerate(votes):
             others = [v for j, v in enumerate(votes) if j != i]
-            if own is None or None in others:
+            if own is None or len(others) != 2 or None in others:
                 continue
             calls = [v == POSITIVE[target] for v in others]
             if calls[0] == calls[1]:

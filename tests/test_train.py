@@ -131,6 +131,20 @@ def test_mirror_index_swaps_left_and_right():
     assert mirror_index("left_eye|nose") is None
 
 
+def test_mirror_index_swaps_wholebody_hands_and_face():
+    order = "|".join(
+        ["left_wrist", "right_wrist", *(f"face_{i}" for i in range(68))]
+        + [f"{side}hand_{i}" for side in "lr" for i in range(21)]
+    )
+    names = order.split("|")
+    swapped = [names[i] for i in mirror_index(order)]
+    assert swapped[:2] == ["right_wrist", "left_wrist"]
+    assert swapped[2 + 0] == "face_16" and swapped[2 + 8] == "face_8"
+    assert swapped[2 + 36] == "face_45" and swapped[2 + 30] == "face_30"
+    assert swapped[70] == "rhand_0" and swapped[91 + 20] == "lhand_20"
+    assert mirror_index("face_0|face_1") is None  # partner face_16/15 missing
+
+
 def augment_inputs():
     poses = torch.randn(64, 6, 3, 3)
     poses[..., 2] = 1.0
