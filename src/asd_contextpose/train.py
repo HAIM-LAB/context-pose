@@ -27,6 +27,13 @@ from .model import (
 from .votes import auc
 
 MIN_RATE = 0.02  # vote shares are clipped before taking log-odds
+# COCO-WholeBody face landmarks (68-point layout) and their mirror images.
+_FACE_PAIRS = [(i, 16 - i) for i in range(8)] + [
+    (17, 26), (18, 25), (19, 24), (20, 23), (21, 22), (31, 35), (32, 34),
+    (36, 45), (37, 44), (38, 43), (39, 42), (40, 47), (41, 46),
+    (48, 54), (49, 53), (50, 52), (55, 59), (56, 58), (60, 64), (61, 63), (65, 67),
+]  # fmt: skip
+FACE_MIRROR = {**dict(_FACE_PAIRS), **{b: a for a, b in _FACE_PAIRS}}
 
 
 def group_medians(rows: list[dict], targets: np.ndarray, column: str) -> dict:
@@ -90,13 +97,20 @@ class WithOffset(Dataset):
         return {**self.dataset[index], "offset": self.offsets[index]}
 
 
+def mirrored_name(name: str) -> str:
+    """The joint's mirror image: left_*/right_*, lhand_*/rhand_*, face_<i> (68-point)."""
+    if name.startswith("face_") and name[5:].isdigit():
+        return f"face_{FACE_MIRROR.get(int(name[5:]), int(name[5:]))}"
+    for a, b in (("left", "right"), ("lhand", "rhand")):
+        if a in name or b in name:
+            return name.replace(a, "\0").replace(b, a).replace("\0", b)
+    return name
+
+
 def mirror_index(joint_order: str) -> list[int] | None:
-    """Joint permutation swapping left_*/right_* names, or None if not pairable."""
+    """Joint permutation swapping mirrored joints, or None if not pairable."""
     names = joint_order.split("|") if joint_order else []
-    swapped = [
-        n.replace("left", "\0").replace("right", "left").replace("\0", "right")
-        for n in names
-    ]
+    swapped = [mirrored_name(n) for n in names]
     if not names or set(swapped) != set(names):
         return None
     return [names.index(n) for n in swapped]
