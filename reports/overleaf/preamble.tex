@@ -1,0 +1,93 @@
+%% This file contains a number of tweaks that are typically applied to the main document.
+%% They are not enabled by default, but can be enabled by uncommenting the relevant lines.
+
+%%
+%% Inline annotations; for predefined colors, refer to "dvipsnames" in the xcolor package:
+%% https://tinyurl.com/overleaf-colors
+%%
+\newcommand{\red}[1]{{\color{red}#1}}
+\newcommand{\todo}[1]{{\color{red}#1}}
+\newcommand{\TODO}[1]{\textbf{\color{red}[TODO: #1]}}
+
+
+%%
+%% disable for camera ready / submission by uncommenting these lines  
+%%
+% \renewcommand{\TODO}[1]{}
+% \renewcommand{\todo}[1]{#1}
+
+%%
+%% work harder in optimizing text layout. Typically shrinks text by 1/6 of page, enable
+%% it at the very end of the writing process, when you are just above the page limit
+%%
+% \usepackage{microtype}
+
+%%
+%% fine-tune paragraph spacing
+%%
+% \renewcommand{\paragraph}[1]{\vspace{.5em}\noindent\textbf{#1.}}
+
+%%
+%% globally adjusts space between figure and caption
+%%
+% \setlength{\abovecaptionskip}{.5em}
+
+
+%%
+%% Allows "the use of \paper to refer to the project name"
+%% with automatic management of space at the end of the word
+%%
+% \usepackage{xspace}
+% \newcommand{\paper}{ProjectName\xspace}
+
+%%
+%% Commonly used math definitions
+%%
+% \DeclareMathOperator*{\argmin}{arg\,min}
+% \DeclareMathOperator*{\argmax}{arg\,max}
+
+%%
+%% Tigthen underline
+%%
+% \usepackage{soul}
+% \setuldepth{foobar}
+
+%%
+%% ContextPose figure and notation (methodology_h.tex)
+%%
+\usepackage{bm}
+\usepackage{tabularx}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,calc,fit,backgrounds}
+
+\tikzset{
+  box/.style={draw,rounded corners=2pt,align=center,font=\footnotesize,minimum height=7mm,inner sep=3pt,fill=white},
+  inp/.style={box,fill=blue!6},
+  op/.style={box,fill=gray!8},
+  outputnode/.style={box,fill=green!8},
+  arr/.style={-{Stealth[length=2mm]},thick},
+  winframe/.style={draw=gray!65,dashed,rounded corners=3pt,inner sep=5pt},
+  faceframe/.style={draw=orange!70!black,dashed,rounded corners=3pt,inner sep=5pt},
+  framelabel/.style={font=\scriptsize,align=center,fill=white,inner sep=1pt},
+}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\regions}{\mathcal{R}}
+\newcommand{\vc}{\mathbf{c}}
+\newcommand{\vchat}{\hat{\mathbf{c}}}
+\newcommand{\ve}{\mathbf{e}}
+\newcommand{\vq}{\mathbf{q}}
+\newcommand{\vsum}{\mathbf{s}} % \vs is taken by cvpr.sty ("vs.")
+\newcommand{\vh}{\mathbf{h}}
+\newcommand{\vy}{\hat{\mathbf{y}}}
+\newcommand{\vb}{\mathbf{b}}
+\newcommand{\vu}{\mathbf{u}}
+\newcommand{\mZ}{\mathbf{Z}}
+\newcommand{\mX}{\mathbf{X}}
+\newcommand{\mS}{\mathbf{S}}
+\newcommand{\mW}{\mathbf{W}}
+\newcommand{\GELU}{\operatorname{GELU}}
+\newcommand{\ReLU}{\operatorname{ReLU}}
+\newcommand{\LN}{\operatorname{LN}}
+\newcommand{\Drop}{\operatorname{Drop}}
+\newcommand{\softmax}{\operatorname{softmax}}
