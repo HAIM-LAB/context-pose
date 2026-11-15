@@ -1,0 +1,360 @@
+% CVPR 2026 Paper Template; see https://github.com/cvpr-org/author-kit
+
+%%% Outline %%%%
+%%% Abstract: What is the scientific question we are answering
+
+%%% Intro: 
+
+%%%% Related Work: ASD vallence arousal detection from stimming behavior.
+
+%%%% Methodology: 
+% 1. Dataset + Annotation: SSDB +ASBD
+% 2. Briefly Benchmark description: Emotic? (limitation: no ASD specific dataset to pre-train or benchmark)
+% 3. Architecture
+
+%%% Evaluation: Model comparision, Bechmark comparision, Ablation
+%%% Results & Discussion: 
+%%% Conclusion
+
+
+% Nov 10 Result Discusssion
+% Conclusion: Pose has to be argued about
+
+% 1 straem
+% Pose is not improving arousal (less than random)
+% Face is giving decent valence
+% VLM description is giving best Arousal (valence same)
+% Event annotation impproves both
+
+% 2 streams
+% Pose detoriate event annotation result.
+% Pose + face further low ressult
+% Annotation + face bolster the result - best
+% VLM + facce - increases accuracy
+
+% 3 stream
+% PPose reduces performance
+% best model is VLM + face + annotation
+% 
+
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+
+
+%%%%%%%%% PAPER TYPE  - PLEASE UPDATE FOR FINAL VERSION
+% \usepackage{cvpr}              % To produce the CAMERA-READY version
+\usepackage[review]{cvpr}      % To produce the REVIEW version
+% \usepackage[pagenumbers]{cvpr} % To force page numbers, e.g. for an arXiv version
+
+% Import additional packages in the preamble file, before hyperref
+\input{preamble}
+
+% It is strongly recommended to use hyperref, especially for the review version.
+% hyperref with option pagebackref eases the reviewers' job.
+% Please disable hyperref *only* if you encounter grave issues, 
+% e.g. with the file validation for the camera-ready version.
+%
+% If you comment hyperref and then uncomment it, you should delete *.aux before re-running LaTeX.
+% (Or just hit 'q' on the first LaTeX run, let it finish, and you should be clear).
+\definecolor{cvprblue}{rgb}{0.21,0.49,0.74}
+\usepackage[pagebackref,breaklinks,colorlinks,allcolors=cvprblue]{hyperref}
+
+%%%%%%%%% PAPER ID  - PLEASE UPDATE
+\def\paperID{*****} % *** Enter the Paper ID here
+\def\confName{CVPR}
+\def\confYear{2026}
+
+%%%%%%%%% TITLE - PLEASE UPDATE
+\title{Event-Centric Multimodal Affective Repressentation Learning from Self-Stimulatory Behaviors in Autism.}
+
+%%%%%%%%% AUTHORS - PLEASE UPDATE
+\author{First Author\\
+Institution1\\
+Institution1 address\\
+{\tt\small firstauthor@i1.org}
+% For a paper whose authors are all at the same institution,
+% omit the following lines up until the closing ``}''.
+% Additional authors and addresses can be added with ``\and'',
+% just like the second author.
+% To save space, use either the email address or home page, not both
+\and
+Second Author\\
+Institution2\\
+First line of institution2 address\\
+{\tt\small secondauthor@i2.org}
+}
+
+\begin{document}
+\maketitle
+\input{0_abstract}  
+
+\input{sec/1_intro}
+\section{Introduction [0.8 page approx]}
+\label{sec:intro}
+
+[0.8 page approx]
+%Added Text by: Olivia
+Affect identification in mental disorders has been a topic recently being studied in the machine learning realm [2]. Stimming behaviors (or motor stereotypies), that are commonly seen in ASD youth, can be considered hard to categorize, and a complex feature of their affective behavior. Machine learning has been helpful in assisting with diagnosis and other related application needs. The purpose of machine learning in this manner is to assist clinicians in evaluating and diagnosing certain affects that may be present. There exists a gap in the data readily available to use for stimming, due to confidentiality and privacy matters, as the manner of conducting information would have to be through children. The problem also lies in social behaviors and language abilities are mostly seen interpersonally through observation[1]. Because of these gaps, using images to aid machine learning training has proven to be helpful, as there are a multitude of factors that can be accounted for in analysis, such as behavior and facial recognition. However, videos to evaluate ASD behaviors due to children having free range of motion and being able to act naturally in the environment can be the closest to real-life observation. Previous literature has been more focused on the evaluation and diagnostic criteria for ASD individuals, and not the treatment or observation of behaviors after the fact. Studying affect in ASD children can help researchers and clinicians further understand how the child may be feeling or thinking, in order to have a greater grasp on the disorder [2].
+
+\subsection{Motivation and Research Context}
+ASD is a mental disability that can be characterized by deficits in several cognitive facets, such as speech, comprehension and motor abilities. The diagnostic rate has risen over time, most likely due to the fact that critical attributes are more well known in the greater population. There is no reliable way to test before birth if a child has predisposition to ASD; however, early diagnosis is key to getting meaningful intervention that will help the child. Conducting observations specifically looking at social behaviors and expressive language can further delay a diagnosis, which people can spend months on a waiting list for. “Self-stimulatory behaviors" or stimming is characterized by repetitive behavior that is observed to be used for many different feelings in children with ASD: negative, positive or simply for sensation purposes. “Human recognition models” that have been created in recent years have shown great promise in being able to detect what it is programmed to look for, such as certain periodic or sustained stimming behaviors such as “gaze aversion, hand flapping, or headbanging”. Training models to be able to identify these behaviors can be advantageous in seeing patterns that the human brain cannot comprehend. Being able to identify “symptomatic events” before stimming behaviors happen can be helpful for therapeutic remedies for the child [1].
+%End Text: Olivia
+
+\subsection{Research Gap}
+
+Stereotypical movements associated with autism spectrum disorder (ASD), such as arm flapping, head banging, and spinning, are often assessed manually, making measurement time-consuming and difficult to scale. Although automated recognition systems exist, potential data leakage from splitting clips from the same video across training and test sets may inflate performance. Evaluation on unseen videos remains limited, and few studies fairly compare privacy-preserving pose-based models with RGB-based models and handcrafted motion features.
+
+Existing research also provides limited insight into movement changes before behavior onset and their associations with observable contextual events, such as social interactions, auditory events, and activity changes. Additionally, it remains unclear whether ASD-relevant upper-body movement patterns are associated with observer-rated valence and arousal or can partially predict these ratings. These ratings reflect perceived affect rather than a child's internal emotional state.
+
+This work addresses these gaps through leakage-free behavior recognition benchmarking, comparisons of pose-based, handcrafted, and RGB-based approaches, analysis of pre-onset movement and contextual associations, and an exploratory investigation of observer-rated affect without implying causation.
+
+\subsection{Research Hypotheses}
+
+\begin{itemize}
+    \item \textbf{H1: Behavior Recognition.} Temporal pose-based models can distinguish among the four stereotypical behavior categories more effectively than simple handcrafted motion statistics that summarize movement intensity.
+
+    \item \textbf{H2: Precursor Movement Changes.} Measurable changes in movement occur before stereotypical behavior onset, relative to ordinary, non-event periods from the same video footage.
+
+    \item \textbf{H3: Context Association.} Pre-onset movement changes are associated with observable contextual events, including social interactions, auditory events, activity or object changes, and visual or screen-based events.
+
+    \item \textbf{H4: Observer-Rated Affect (Exploratory).} Episode-level observer-rated affect, expressed in terms of valence (the apparent positivity or negativity of the child's affect) and arousal (the apparent level of activation or calmness), is associated with pre-onset movement changes, and aspects of these ratings can be partially recovered from upper-body movement alone.
+\end{itemize}
+
+H1 evaluates behavioral classification, while H2 and H3 examine pre-onset movement changes and their associations with observable context, without implying causation. H4 is exploratory because valence and arousal ratings were added after the original study design. Three observers, blinded to the study results, rated each clip as a whole. Therefore, these ratings characterize episode-level perceived affect rather than the child's internal emotional state or affect specifically before behavior onset. H4 examines associations between these episode-level ratings and pre-onset movement changes.
+
+\noindent\textbf{Contributions.}
+\begin{enumerate}
+    \item A pose-based pipeline for four stereotypy categories, evaluated using video-grouped cross-validation against a handcrafted-feature baseline.
+    \item An analysis of movement dynamics around behavior onset across pre-event, event, and post-event windows.
+    \item A context annotation scheme and an analysis of how contextual events relate to subsequent movement.
+\end{enumerate}
+
+% Spans both columns (best for this wide 4x3 diagram)
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig/end_to_end_pipeline.png}
+  \caption{End-to-end pipeline. Annotated ASD videos are segmented into behavior episodes, split by video, and converted to cleaned 2D pose sequences (YOLO11 + ByteTrack, ViTPose++). These are classified with handcrafted-feature or deep temporal models, and a Pre/Event/Post window analysis on context clips examines movement changes around behavior onset.}
+  \label{fig:pipeline}
+\end{figure*}
+
+\input{sec/2_relatedwork}
+\input{sec/3_material_methods}
+\section{Dataset and Annotation}
+\label{sec:data}
+
+Data curation, event timestamps, subject-level splits, context annotation, and research tasks.\\
+Describe the sources, inclusion criteria, available videos, unusable records, behavior labels, and event timestamps. Report the actual final counts after curation rather than using preliminary counts as final results.
+
+\subsection{Dataset Sources and Curation}
+\label{subsec:dataset_curation}
+% TODO: sources, inclusion criteria, final counts after curation (videos, clips, subjects),
+% unusable records, behavior labels (arm flapping, hand flapping, head banging, spinning), timestamps.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig/video_split_and_context_clip.png}
+  \caption{(a) Video-level split: all segments of a source video stay together (blue/orange blocks), in the same split and stratified by behavior class. (b) Construction of an event-centred context clip (\texttt{--window 5}) and the subsets A and B. Here $\mathrm{pre}_s = \mathrm{start}_1$ (first segment) or $\mathrm{start}_i - \mathrm{end}_{i-1}$ (later segments), and $\mathrm{post}_s = \mathrm{duration} - \mathrm{end}$. Subset~A contains all usable segments; Subset~B requires $\mathrm{pre}_s \ge 5$\,s ($B_{\mathrm{pre}}$) and $\mathrm{post}_s \ge 5$\,s ($B_{\mathrm{pre\_post}}$).}
+  \label{fig:split_context}
+\end{figure}
+
+\subsection{Event Definition and Temporal Windows}
+\label{subsec:event_temporal_windows}
+For each annotated behavior we define three windows: \emph{pre-event} (the 10\,s before the behavior begins), \emph{event} (the annotated behavior interval), and \emph{post-event} (the period after the behavior ends, limited by video availability). A 5\,s pre-event window serves as a sensitivity analysis. 
+% TODO: overlapping events, timestamp uncertainty, short clips.
+
+\subsection{Context Annotation}
+\label{subsec:context_annotation}
+Three annotators independently and blindly labeled each of 192 context clips (92 videos) for four binary contextual events: social interaction, auditory event, activity/object change, and visual/media event. A fifth field, \emph{No Event}, is $1$ only when all four indicators are $0$. Each judgment carries a confidence score from 1 to 5. Annotators also rated the emotional effect on a valence scale (positive, neutral, negative, unknown) and an arousal scale (high, low, unknown) (Fig.~\ref{fig:context-annotation}).
+
+Binary fields are resolved by majority vote. Valence and arousal are mapped to $[-1,1]$ (valence: positive $+1$, neutral $0$, negative $-1$; arousal: high $+1$, low $-1$; unknown $0$) and combined by a confidence-weighted mean
+\begin{equation}
+\hat{y}_d=\frac{\sum_{i\in S_d} w_{i,d}\,y_{i,d}}{\sum_{i\in S_d} w_{i,d}},\qquad w_{i,d}=c_{i,d}/5,
+\end{equation}
+where $S_d$ is the set of annotators with a rating for dimension $d$ and $c_{i,d}$ is the confidence score.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=1.0\linewidth]{fig/clip_to_annotation.png}
+    \caption{Context annotation. Each clip is split into pre- and post-event windows, and annotators label four contextual events and the emotional effect (valence, arousal), each with a confidence score.}
+    \label{fig:context-annotation}
+\end{figure}
+
+\paragraph{Annotator agreement.}
+
+\input{table/annotator_agreement2}
+Table~\ref{tab:agreement} reports agreement among the three annotators. Agreement is highest for visual/media events and weakest for activity/object change and arousal. For fields where one label dominates (auditory event, no event), Fleiss' $\kappa$ is low despite high raw agreement, so we also report Gwet's AC1.
+% [paste your agreement table here]
+
+\input{methodology_h}
+
+% \section{Method}
+% \label{sec:method}  % now defined in methodology_h.tex
+
+\subsection{Problem Formulation}
+\label{subsec:problem_formulation}
+The primary task is supervised four-class behavior recognition from a sequence of body keypoints. The secondary task is exploratory: we measure movement changes across the pre-event, event, and post-event windows and test their association with annotated contextual events. 
+%No labels are used to train this analysis.
+
+\subsection{Pose Extraction and Temporal Representation}
+\label{subsec:pose_extraction}
+% TODO: pose estimator, person selection, 11 joints, normalization (shoulder-width units), 25 fps,
+% per-frame input (positions, velocities, validity flags).
+
+\paragraph{Pose extraction.}
+We detect and track people in every frame with YOLO11 (medium)~\cite{jocher2024yolo11, Redmon_2016_CVPR} and ByteTrack~\cite{zhang2022bytetrack}, and estimate 17 COCO keypoints inside each person box with ViTPose++ (COCO body expert)~\cite{xu2022vitpose,xu2023vitpose++}. Keypoint confidences are stored, and no threshold is applied at this stage. All tracked people are stored and the child is selected afterwards; behavior and context clips use the same code, so both analyses share the same pose quality.
+
+\paragraph{Person selection and cleaning.}
+Videos often contain several people and tracker identity switches. We select the child as the longest-lasting track, plus other track IDs that lie on the same person (heavily overlapping boxes, or an ID switch within 0.6\,s at a nearby position). If several detections remain in a frame, we keep the one with the highest mean upper-body confidence. We retain 11 upper-body joints (nose, eyes, ears, shoulders, elbows, wrists), mask joints with confidence below 0.3, and reject anatomically implausible arm points (upper arm or forearm longer than 2, or shoulder-to-wrist distance larger than 3.5, shoulder widths). Gaps of up to 0.2\,s are linearly interpolated; longer gaps remain missing and are flagged by a validity mask. Clips are resampled to 25\,fps. We apply no temporal smoothing, since it can flatten fast flapping and head-banging movements. Per-clip quality flags (child detected in $\ge$70\% of frames, head and shoulders valid in $\ge$60\%, wrists valid in $\ge$50\%) are used only for sensitivity analyses, not for filtering. All steps and parameters are listed in Table~S1 of the supplementary material.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig/pixels_vs_normalized_pose.png}
+  \caption{Coordinate normalization: pixels (left) to shoulder-midpoint-centred, shoulder-width units (middle); the 11 retained joints (right). Schematic skeleton. Retained upper-body joints: 0~nose, 1/2~left/right eye, 3/4~left/right ear, 5/6~left/right shoulder, 7/8~left/right elbow, 9/10~left/right wrist. Hips, knees, and ankles are dropped (often out of frame or occluded). Normalization: $x_{\mathrm{norm}} = (x_{\mathrm{px}} - \text{shoulder midpoint}) / \text{median shoulder width}$, with one constant scale per clip so the Pre, Event, and Post windows stay comparable.}
+  \label{fig:normalization}
+\end{figure}
+
+\paragraph{Normalization and per-frame input.}
+Normalization removes the child's position in the frame and the camera zoom, so the models see movement and not scene geometry (Fig.~\ref{fig:normalization}).Coordinates are translated so that the shoulder midpoint is the origin and divided by the clip's \emph{median} shoulder width, so one unit equals one shoulder width. We use a single scale per clip, not per frame, so that amplitudes remain comparable between the pre-event, event, and post-event windows; if shoulders are rarely visible, we fall back to a box-based scale. Each frame is then described by the 55 channels defined in Sec.~\ref{sec:implementation}: 11 joint positions $(x,y)$, their velocities, and 11 validity flags. Positions are clipped to $[-6,6]$ (missing joints set to 0), and velocities are $v_t=\mathrm{clip}\big((p_t-p_{t-1})\,\mathrm{fps}/5,\,-5,5\big)$ if the joint is valid at $t$ and $t{-}1$, else 0. The validity flags let the model tell a joint at the origin from a missing one; interpolated points count as valid. Clips shorter than one window (100 frames) are zero-padded, and a padding mask is carried through all layers so that padded frames never affect pooling, convolutions, or attention.
+
+\subsection{Handcrafted Motion Features}
+\label{subsec:handcrafted}
+As an interpretable first level of the model hierarchy, each clip is described by 62 motion features computed from the cleaned pose using only real detections (valid and not interpolated). Positions are in shoulder widths and speed in shoulder widths per second. The features fall into eight groups: velocity (9), acceleration (6), motion energy (3), amplitude (12), posture (8), periodicity (12), coordination (5), and body turning (7); Table~S2 in the supplementary material lists them. Periodicity is computed from a Lomb--Scargle spectrum~\cite{...}, which is valid with gaps, in the 0.5--8\,Hz band, and is undefined for signals shorter than 2\,s. A feature that cannot be computed (too few samples or missing joints) is left missing and imputed later. We exclude clip-quality descriptors (duration, valid and interpolated fractions) because they can leak class information. Motion energy, the mean squared joint speed. The classifiers trained on these features are described in Sec.~\ref{sec:implementation}.
+
+
+\subsection{Behavior Prediction}
+\label{subsec:behavior_prediction}
+We compare four temporal encoders that share the same input (55 channels per frame, Sec.~\ref{sec:implementation}), hidden size 64, and output block: masked mean and max pooling over time, a linear embedding (64-d), GELU, dropout 0.3, and a linear layer with four outputs. Only the temporal encoder differs, so performance differences reflect how each model reads the time axis. All models are trained from scratch; Tab.~\ref{tab:arch} summarizes them. Training uses one random 4\,s crop per clip and epoch; at test time overlapping windows (stride 2\,s) cover the clip and their probabilities and embeddings are averaged. The 64-d clip embedding $z=F(P_{1:T})$ is the representation used in the context analysis (Sec.~\ref{subsec:context_temporal_analysis}).
+
+
+\paragraph{Temporal Convolutional Network (TCN).}
+Inspired by skeleton-based TCNs~\cite{nan2021comparison,Kim_2017_CVPR_Workshops} and
+the residual TCN of Bai et al.~\cite{bai1803empirical}, we use a lightweight TCN on 55-d per-frame pose features (position, velocity and visibility of 11 keypoints). A $1\times1$ convolution maps them to 64 channels, followed by four residual blocks of two non-causal dilated 1D convolutions (kernel 3,
+GroupNorm, GELU, dropout) with dilations $1,2,4,8$, giving a 61-frame ($\approx 2.4$\,s) receptive field. Masked mean and max pooling over time yields the clip embedding.
+
+\paragraph{BiLSTM.}
+A linear projection ($55{\to}64$) with GELU feeds a two-layer bidirectional LSTM (hidden size 64, dropout between layers)~\cite{KEY_lstm}. Padded frames are packed and ignored. Mean and max pooling over the 128-d outputs give a 256-d vector for the embedding layer.
+
+\paragraph{ST-GCN.}
+The input is reshaped to a graph of 11 joints (nose, eyes, ears, shoulders, elbows, wrists) with five features per joint ($x$, $y$, $v_x$, $v_y$, validity). Four blocks each apply a spatial graph convolution along the skeleton edges, using the spatial-configuration partitioning (root, centripetal, centrifugal neighbors) with the shoulders as body centre and learnable edge weights~\cite{KEY_stgcn}, and a temporal convolution (kernel 5, dilation 1, 2, 4, 8) with a residual connection. Joints are averaged, then pooled over time. The receptive field is 61 frames.
+
+\paragraph{Temporal Pose Transformer (TPT).}
+Each frame becomes one token (linear $55{\to}64$) with a sinusoidal time encoding~\cite{KEY_transformer}. Three pre-norm Transformer encoder layers (4 heads, feed-forward size 128, GELU, dropout 0.3) use a padding mask. Self-attention gives every frame access to the whole 4\,s window.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Temporal encoders. Receptive field is in frames at 25\,fps.}
+\label{tab:arch}
+\begin{tabular}{lccc}
+\toprule
+Model & Params & Time modelling & Receptive field \\
+\midrule
+TCN & 111,940 & dilated 1-D conv. & 61 \\
+BiLSTM & 186,180 & recurrence & 100 (full) \\
+ST-GCN & 132,272 & graph + temporal conv. & 61 \\
+TPT & 112,644 & self-attention & 100 (full) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Context-Associated Temporal Analysis}
+\label{subsec:context_temporal_analysis}
+The context branch uses the event-centred clips of Sec.~\ref{subsec:event_temporal_windows}, with pose cleaned as for the behavior clips.
+
+\paragraph{Windows.}
+Windows of $W{=}1.5$\,s are counted from the onset: \emph{far}, \emph{mid}, and \emph{near} before the onset (three fit in the 5\,s of pre-onset footage), \emph{event} at the start of the behavior, and \emph{event tail} and \emph{post} around the offset. A window is used only if it lies fully inside the clip and head and shoulders are valid in at least 50\% of its frames.
+
+
+
+\input{sec/4_exprim_result}
+\section{Experiments and Results [2.5 page approx]}
+
+Baselines, ablations, generalization, quantitative results, and statistical analysis
+
+
+\subsection{Datasets and Evaluation Protocol}
+\label{sec:datasets_protocol}
+
+% Describe the dataset and evaluation split protocol here.
+We evaluate the models using video-grouped cross-validation and a
+held-out test set, ensuring that clips from the same source video
+do not appear across training and evaluation splits.
+
+% Insert the class-distribution table.
+\input{table/classDistribution}
+
+% Explain the class distribution immediately after the table.
+\paragraph{Class Distribution.}
+The behavior-recognition dataset contains 291 clips, comprising
+236 training clips and 55 test clips across four behavior categories.
+As shown in Table~\ref{tab:class_distribution}, the class distribution
+is imbalanced, with hand action being the least represented category
+(17 training clips and 4 test clips). Consequently, we report macro-F1
+and balanced accuracy alongside overall accuracy, and interpret
+per-class test results for underrepresented categories with caution.
+
+\paragraph{Data quality.}
+Four training clips had no usable joint in any frame and were excluded. Six further clips (four training, two test) were kept although only 2--15 of their frames contained any usable joint; as described in Sec.~\ref{sec:implementation}, missing joints are passed to the models as zeros together with a validity flag.
+
+
+\paragraph{Metrics.}
+Macro-F1 is our primary metric, defined as the unweighted mean of the
+four per-class F1 scores, giving equal importance to each behavior
+category, including the underrepresented hand-action class. We also
+report balanced accuracy, defined as the mean per-class recall, and
+overall accuracy, defined as the proportion of correctly classified
+clips. Cross-validation results are reported as mean $\pm$ standard
+deviation across three repeats. For the held-out test set, 95\%
+confidence intervals are estimated using 1,000 bootstrap resamples
+at the video level.
+
+\subsection{Implementation Details}
+\label{sec:implementation}
+
+\paragraph{Input.}
+Each clip is divided into 4\,s windows sampled at 25\,fps (100 frames
+per window). Each frame is represented by 55 channels: the $(x,y)$
+coordinates of 11 joints, their frame-to-frame velocities, and 11
+joint-validity indicators.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig/training_augmentations.png}
+  \caption{Effect of each augmentation on a schematic skeleton (jitter is drawn eight times larger so that it is visible). Training augmentations are applied to the 4\,s random crop, in this order: mirror, rotation + scale, jitter, joint dropout. Mirror ($p=0.5$): $x \rightarrow -x$ and swap left/right joints. Rotation: $\mathcal{U}(-10^\circ,+10^\circ)$, drawn at $+10^\circ$ (dashed = original). Scale: $\mathcal{U}(0.9,1.1)$, drawn at $\times 1.1$ (dashed = original). Gaussian jitter: $\sigma = 0.01$ shoulder widths, drawn $\times 8$ (dashed = original). Joint dropout: 5\% per joint and frame; a dropped joint is set to 0 and its flag to 0 (red rings, one frame shown).}
+  \label{fig:augmentations}
+\end{figure}
+
+\paragraph{Training.}
+All four pose encoders share one training protocol (Table~S3). We use AdamW~\cite{KEY_adamw} with a learning rate of $10^{-3}$ and weight decay of $10^{-2}$, a cosine learning-rate schedule~\cite{KEY_cosine} updated once per epoch, batch size 16, and 80 epochs without early stopping. The loss is cross-entropy with class weights $n/(K\,n_c)$ ($n$ clips, $K{=}4$ classes, $n_c$ clips of class $c$) and label smoothing of 0.1~\cite{KEY_labelsmooth}. We apply dropout of 0.3 and gradient clipping at norm 1.0. Training-time augmentation (Fig.~\ref{fig:augmentations}) includes horizontal mirroring ($p=0.5$), rotation within $\pm 10^{\circ}$, scaling in $[0.9,1.1]$, Gaussian coordinate jitter ($\sigma=0.01$), and 5\% joint dropout. We use no time warping, since it could erase the tempo changes that the context analysis measures; mirroring reverses spin direction, which does not affect our classes. Seeds are fixed per model (seed $+\,100\cdot$repeat$\,+\,$fold for cross-validation; seed $+\,1000\,+\,s$ for the final models, whose probabilities are averaged over three seeds).
+
+
+\paragraph{Handcrafted baselines.}
+We train multinomial logistic regression~\cite{KEY_logreg}, a random forest~\cite{KEY_rf}, and XGBoost~\cite{KEY_xgboost} on the 62 handcrafted features of Sec.~\ref{subsec:handcrafted} and on an energy-only set of three features (overall amount of motion). Logistic regression uses median imputation, standardization, $C{=}1$, and balanced class weights; the random forest uses 500 trees, minimum leaf size 2, $\sqrt{\text{features}}$ per split, and balanced subsampling; XGBoost uses 200 rounds, depth 3, learning rate 0.05, subsample and column sample 0.8, and balanced sample weights. No hyperparameters are tuned, since tuning on a small dataset would add optimism. All baselines use the same clips, folds, seeds, and metrics as the deep models.
+
+%or 
+%\paragraph{Handcrafted baselines.}
+%Using the features of Sec.~\ref{subsec:handcrafted} (all 62, and an energy-only set), we train logistic regression, a random forest, and XGBoost (settings in the supplementary material). No hyperparameters are tuned, and all baselines use the same clips, folds, seeds, and metrics as the deep models.
+
+
+\input{sec/5_dicsussuion}
+\input{sec/6_comclusion}
+
+ASBD Dataset Paper ~\cite{ribeiro2023stimming}
+SSBD paper must need to cite ~\cite{rajagopalan2013self}
+
+
+{
+    \small
+    \bibliographystyle{ieeenat_fullname}
+    \bibliography{asd}
+}
+
+
+
+
+% WARNING: do not forget to delete the supplementary pages from your submission 
+\input{sec/X_suppl}
+
+
+\end{document}
