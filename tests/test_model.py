@@ -189,3 +189,52 @@ def test_face_only_input_and_face_validation():
         2,
         2,
     )
+
+
+def eclips(config, batch=2):
+    """EmotionCLIP tensors [B, steps, eclip_dim + 1]; the last column is a flag."""
+    return {
+        f"{region}_eclip": torch.randn(batch, config.steps, config.eclip_dim + 1)
+        for region in ("pre", "event", "post")
+    }
+
+
+@pytest.mark.parametrize(
+    "subject, fusion", [("eclip", "concat"), ("both", "concat"), ("both", "separate")]
+)
+def test_eclip_subjects_forward_backward_and_use_their_inputs(subject, fusion):
+    config = ModelConfig(
+        8, 3, 3, dropout=0.0, subject=subject, eclip_dim=6, fusion=fusion
+    )
+    model = ContextPose(config).eval()
+    values, extra = inputs(config), eclips(config)
+    pred = model(*values, **extra)
+    assert pred.shape == (2, 2)
+    pred.sum().backward()
+    other = {key: torch.randn_like(value) for key, value in extra.items()}
+    assert not torch.allclose(pred, model(*values, **other))
+    moved = [values[0], *(torch.randn_like(v) for v in values[1:])]
+    uses_pose = not torch.allclose(pred, model(*moved, **extra))
+    assert uses_pose == (subject == "both")
+    annotation = build_model(
+        ModelConfig(4, 3, 3, model="annotation_attention", subject=subject, eclip_dim=6)
+    )
+    assert annotation(torch.zeros(2, 4), *values[1:], **extra).shape == (2, 2)
+
+
+def test_eclip_validation():
+    with pytest.raises(ValueError, match="eclip_dim > 0"):
+        ModelConfig(8, 3, 3, subject="both")
+    with pytest.raises(ValueError, match="eclip_dim > 0"):
+        ModelConfig(8, 3, 3, eclip_dim=6)
+    with pytest.raises(ValueError, match="subject must be"):
+        ModelConfig(8, 3, 3, subject="video", eclip_dim=6)
+    with pytest.raises(ValueError, match="fusion must be"):
+        ModelConfig(8, 3, 3, subject="both", eclip_dim=6, fusion="sum")
+    with pytest.raises(ValueError, match="pose subjects only"):
+        ModelConfig(8, 3, 3, model="text_gru", subject="both", eclip_dim=6)
+    config = ModelConfig(8, 3, 3, subject="both", eclip_dim=6)
+    with pytest.raises(ValueError, match="pre_eclip must have shape"):
+        ContextPose(config)(*inputs(config))
+    with pytest.raises(ValueError, match="eclip inputs need"):
+        ContextPose(ModelConfig(8, 3, 3))(*inputs(config), **eclips(config))
