@@ -278,6 +278,55 @@ S1: speed, no regularisation & 0.459 & 0.581 & 0.575 & 0.411 / 0.499 / 0.01 & 0.
 \end{itemize}}
 \end{table}
 
+\begin{table}[!htbp]
+\centering
+\caption{\textbf{Stream ablation as regression: the input combinations of Table~\ref{tab:streams} trained to predict the consensus valence and arousal labels} (cross-validated, 5 seeds). Metrics as in Table~\ref{tab:spec}. P = pose, A = event annotation, V = VLM scene description, F = face.}
+\label{tab:streams_reg}
+\small
+\setlength{\tabcolsep}{3.5pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{cccclcccccc}
+\toprule
+P & A & V & F & Model & Mean MAE & Mean RMSE & mAP & V MAE / RMSE / CCC & A MAE / RMSE / CCC & Gain vs lookup \\
+\midrule
+\multicolumn{5}{l}{Overall median} & 0.467 & 0.606 & 0.515 & 0.371 / 0.494 / 0.00 & 0.564 / 0.718 / $-0.05$ & -- \\
+ & $\checkmark$ & & & Annotation lookup (no network) & 0.426 & 0.586 & 0.585 & 0.372 / 0.493 / 0.21 & 0.480 / 0.679 / 0.17 & -- \\
+\midrule
+$\checkmark$ & & & & Pose only & 0.450 & 0.560 & 0.600 & 0.381 / 0.486 / 0.07 & 0.518 / 0.635 / 0.13 & $-0.023$\ci{-0.090}{+0.040} \\
+ & $\checkmark$ & & & Event annotation only & 0.444 & 0.572 & 0.587 & 0.392 / 0.488 / 0.24 & 0.495 / 0.655 / 0.15 & $-0.017$\ci{-0.047}{+0.017} \\
+ & & $\checkmark$ & & VLM only & 0.441 & 0.563 & 0.584 & 0.369 / 0.484 / 0.02 & 0.513 / 0.642 / 0.06 & $-0.015$\ci{-0.067}{+0.033} \\
+ & & & $\checkmark$ & Face only & 0.421 & 0.572 & 0.647 & 0.348 / 0.471 / 0.25 & 0.493 / 0.673 / 0.17 & $+0.006$\ci{-0.047}{+0.059} \\
+\midrule
+$\checkmark$ & $\checkmark$ & & & Pose + annotation & 0.437 & 0.560 & 0.628 & 0.412 / 0.503 / 0.29 & 0.463 / 0.617 / 0.30 & $-0.011$\ci{-0.057}{+0.032} \\
+$\checkmark$ & & $\checkmark$ & & Pose + VLM & 0.459 & 0.569 & 0.577 & 0.387 / 0.491 / 0.05 & 0.532 / 0.646 / 0.12 & $-0.033$\ci{-0.097}{+0.029} \\
+$\checkmark$ & & & $\checkmark$ & Pose + face & 0.419 & 0.537 & 0.643 & 0.367 / 0.465 / 0.25 & 0.471 / 0.608 / 0.27 & $+0.007$\ci{-0.051}{+0.067} \\
+ & $\checkmark$ & $\checkmark$ & & Annotation + VLM & 0.425 & 0.564 & 0.613 & 0.399 / 0.499 / 0.24 & \best{0.450} / 0.629 / 0.25 & $+0.001$\ci{-0.034}{+0.039} \\
+ & $\checkmark$ & & $\checkmark$ & Annotation + face & 0.428 & 0.576 & 0.603 & 0.382 / 0.490 / 0.35 & 0.474 / 0.662 / 0.24 & $-0.002$\ci{-0.040}{+0.038} \\
+ & & $\checkmark$ & $\checkmark$ & \best{VLM + face} & \best{0.398} & \best{0.523} & \best{0.678} & \best{0.331} / \best{0.444} / 0.30 & 0.466 / \best{0.602} / 0.26 & \best{$+0.028$}\ci{-0.027}{+0.080} \\
+\midrule
+$\checkmark$ & $\checkmark$ & & $\checkmark$ & Pose + annot.\ + face (full model) & 0.419 & 0.550 & 0.631 & 0.378 / 0.481 / \best{0.37} & 0.459 / 0.620 / \best{0.34} & $+0.008$\ci{-0.041}{+0.052} \\
+$\checkmark$ & & $\checkmark$ & $\checkmark$ & Pose + VLM + face & 0.425 & 0.546 & 0.620 & 0.357 / 0.465 / 0.25 & 0.494 / 0.628 / 0.24 & $+0.001$\ci{-0.058}{+0.061} \\
+$\checkmark$ & $\checkmark$ & $\checkmark$ & & Pose + annotation + VLM & 0.440 & 0.565 & 0.622 & 0.415 / 0.509 / 0.28 & 0.464 / 0.622 / 0.29 & $-0.013$\ci{-0.060}{+0.032} \\
+ & $\checkmark$ & $\checkmark$ & $\checkmark$ & Annotation + VLM + face & 0.415 & 0.554 & 0.619 & 0.370 / 0.476 / \best{0.37} & 0.460 / 0.632 / 0.29 & $+0.011$\ci{-0.030}{+0.050} \\
+\midrule
+$\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & All four streams & 0.427 & 0.555 & 0.630 & 0.391 / 0.487 / 0.36 & 0.464 / 0.623 / \best{0.34} & $-0.001$\ci{-0.051}{+0.044} \\
+\bottomrule
+\end{tabular}%
+}
+\tabledesc{Each row is the ContextPose model of the same row in Table~\ref{tab:streams}, retrained to regress the confidence-weighted consensus labels ($[-1, 1]$ scale) instead of the annotators' vote shares. The models of Table~\ref{tab:streams} predict vote shares, which cannot be converted to consensus labels: a vote share counts neutral and negative valence votes alike, and ignores the annotators' confidence.
+\emph{Protocol:} the clips, folds, streams and training settings of Table~\ref{tab:streams} (153 development clips, video-grouped 5-fold cross-validation with duplicate videos merged; width 64, dropout 0.3, weight decay 0.05, learning rate $3\times10^{-4}$, pose augmentation, up to 60 epochs with patience 10), except the objective: squared error on the consensus labels for every row. Predictions are averaged over 5 seeds.
+\emph{Offsets:} rows with A start from the training folds' median label per indicator combination (the lookup) and learn a correction; rows without A start from the training folds' overall median, so no annotation information reaches them.
+\emph{Metrics:} as in Table~\ref{tab:spec}. On these clips a single constant prediction has mAP 0.52 (positive shares 0.80 for valence and 0.24 for arousal). Gain is the lookup's mean MAE minus the model's (positive means better than the lookup), with a 95\% participant-bootstrap interval. The lookup here (0.426) differs slightly from Table~\ref{tab:spec} (0.425) because the folds differ. Bold marks the best value in each column.
+\emph{Findings:}
+\begin{itemize}
+  \item VLM + face is the best regressor on every summary metric (mean MAE 0.398, mean RMSE 0.523, mAP 0.678), but its gain over the lookup includes zero ($+0.028$\ci{-0.027}{+0.080}). No row's interval excludes zero.
+  \item Every network has a lower mean RMSE than the lookup (0.523--0.576 vs 0.586), including those without the annotation. The lookup's group medians often sit at the ends of the scale (e.g.\ arousal $-1.00$), so its misses are large.
+  \item The face is the stream that helps: six of the eight rows with the face have a lower mean MAE than the lookup (the other two are within 0.002), against one of the seven rows without it (by 0.001).
+  \item Pose is mixed. It lowers mean MAE when added to the face (0.421 to 0.419) or to annotation + face (0.428 to 0.419), and raises it when added to VLM + face (0.398 to 0.425) or to the VLM (0.441 to 0.459); none of these changes is outside the noise.
+  \item The ranking differs from the binary calls: annotation + face, the best valence caller in Table~\ref{tab:streams}, only matches the lookup here ($-0.002$).
+\end{itemize}}
+\end{table}
+
 % \begin{table}[!htbp]
 % \centering
 % \caption{\textbf{Held-out test set, scored once} (29 usable test clips from 20 videos not seen in development; regression of the consensus labels). All predictors were fitted on the 153 development clips, and the candidate was fixed in advance from cross-validation: the lookup for valence and a linear model on context plus nine hand-crafted movement features per window (head, elbow, wrist and body speed, wrist height and spread, head bob) for arousal. The movement signal did not replicate (arousal CCC 0.00); the lookup's cross-validated performance carried over, making it the only predictor confirmed on new videos. MAE and RMSE lower is better; CCC higher is better (0.00 = no agreement); mAP higher is better (defined as in Table~\ref{tab:spec}; a constant prediction scores the test clips' positive share, 0.79 for valence and 0.28 for arousal, so mAP 0.53). Bold: best.}

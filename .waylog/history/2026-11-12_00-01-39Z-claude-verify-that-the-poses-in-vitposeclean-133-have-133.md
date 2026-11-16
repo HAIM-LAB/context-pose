@@ -2158,3 +2158,36 @@ Assuming you uploaded the PDF as `Library/contextpose_architecture.pdf`:
 - If you uploaded the PNG instead, change the extension to `.png`. The PDF stays sharp at any zoom.
 
 ---
+
+
+**User**
+
+push everything to github plus the waylog stuff
+
+---
+
+
+**Claude**
+
+Before staging, I'll scan the waylog files and `README_AffectGPT.md` for anything that looks like a credential:
+
+---
+
+
+**Claude**
+
+The scan found no secrets, just ordinary uses of words like "token". Committing everything and pushing:
+
+---
+
+
+**Claude**
+
+Everything is pushed to `pose133-olivia-quadrants` on GitHub. Nothing is left uncommitted. Before committing, I scanned the waylog files and `README_AffectGPT.md` for keys and tokens and found none.
+
+- `f376cce` is the redrawn architecture diagram (script, PDF, SVG and PNG).
+- `d0f7266` adds the waylog session history (one changed file and two new ones) and `README_AffectGPT.md`.
+
+The retrained regression table from last session is still in `stash@{0}`; it's local only and wasn't pushed.
+
+---
