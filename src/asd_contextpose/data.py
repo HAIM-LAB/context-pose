@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from .model import FACE_KEYS, ModelConfig
+from .model import ECLIP_KEYS, FACE_KEYS, ModelConfig
 
 POSE_KEYS = ("pre_pose", "event_pose", "post_pose")
 
@@ -118,13 +118,20 @@ class PoseDataset(Dataset):
         c = self.config
         pose_shape = (c.steps, c.num_joints, c.joint_features)
         # The conditioning vector is CLIP text or annotations, per model variant.
-        input_keys = (c.condition_key, *POSE_KEYS, *(FACE_KEYS if c.face_dim else ()))
+        input_keys = (
+            c.condition_key,
+            *POSE_KEYS,
+            *(FACE_KEYS if c.face_dim else ()),
+            *(ECLIP_KEYS if c.eclip_dim else ()),
+        )
         shapes = {
             c.condition_key: (c.text_dim,),
             **dict.fromkeys(POSE_KEYS, pose_shape),
         }
         if c.face_dim:  # face features plus the quality-gate mask column
             shapes.update(dict.fromkeys(FACE_KEYS, (c.steps, c.face_dim + 1)))
+        if c.eclip_dim:  # EmotionCLIP embedding plus the child-tracked flag
+            shapes.update(dict.fromkeys(ECLIP_KEYS, (c.steps, c.eclip_dim + 1)))
         shapes["target"] = (2,)
         if c.objective == "votes":
             shapes["votes"] = (2,)

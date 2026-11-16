@@ -17,9 +17,11 @@ from .data import POSE_KEYS, PoseDataset, assert_disjoint, assert_group_separati
 from .model import (
     CONTEXT_DIM,
     FACE_TARGETS,
+    FUSIONS,
     INPUTS,
     MODELS,
     OBJECTIVES,
+    SUBJECTS,
     ContextPose,
     ModelConfig,
     build_model,
@@ -301,6 +303,24 @@ def main(argv: list[str] | None = None) -> None:
         help="chance of hiding a training sample's face stream",
     )
     parser.add_argument(
+        "--subject",
+        choices=SUBJECTS,
+        default="pose",
+        help="per-step subject features: pose, EmotionCLIP (*_eclip NPZ keys) or both",
+    )
+    parser.add_argument(
+        "--eclip-dim",
+        type=int,
+        default=0,
+        help="EmotionCLIP embedding width in the NPZs (512); 0 = no EmotionCLIP",
+    )
+    parser.add_argument(
+        "--fusion",
+        choices=FUSIONS,
+        default="concat",
+        help="--subject both: concatenate half-width projections, or separate encoders",
+    )
+    parser.add_argument(
         "--augment", action="store_true", help="random rotate/scale/jitter/mirror"
     )
     parser.add_argument(
@@ -390,6 +410,9 @@ def main(argv: list[str] | None = None) -> None:
         face_targets=args.face_targets,
         face_dropout=args.face_dropout,
         objective=args.objective,
+        subject=args.subject,
+        eclip_dim=args.eclip_dim,
+        fusion=args.fusion,
     )
     train = PoseDataset(args.train_manifest, config, "train")
     val = PoseDataset(args.val_manifest, config, "val")

@@ -278,6 +278,55 @@ S1: speed, no regularisation & 0.459 & 0.581 & 0.575 & 0.411 / 0.499 / 0.01 & 0.
 \end{itemize}}
 \end{table}
 
+\begin{table}[!htbp]
+\centering
+\caption{\textbf{Stream ablation as regression: the input combinations of Table~\ref{tab:streams} trained to predict the consensus valence and arousal labels} (cross-validated, 5 seeds). Metrics as in Table~\ref{tab:spec}. P = pose, A = event annotation, V = VLM scene description, F = face.}
+\label{tab:streams_reg}
+\small
+\setlength{\tabcolsep}{3.5pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{cccclcccccc}
+\toprule
+P & A & V & F & Model & Mean MAE & Mean RMSE & mAP & V MAE / RMSE / CCC & A MAE / RMSE / CCC & Gain vs lookup \\
+\midrule
+\multicolumn{5}{l}{Overall median} & 0.467 & 0.606 & 0.515 & 0.371 / 0.494 / 0.00 & 0.564 / 0.718 / $-0.05$ & -- \\
+ & $\checkmark$ & & & Annotation lookup (no network) & 0.426 & 0.586 & 0.585 & 0.372 / 0.493 / 0.21 & 0.480 / 0.679 / 0.17 & -- \\
+\midrule
+$\checkmark$ & & & & Pose only & 0.450 & 0.560 & 0.600 & 0.381 / 0.486 / 0.07 & 0.518 / 0.635 / 0.13 & $-0.023$\ci{-0.090}{+0.040} \\
+ & $\checkmark$ & & & Event annotation only & 0.444 & 0.572 & 0.587 & 0.392 / 0.488 / 0.24 & 0.495 / 0.655 / 0.15 & $-0.017$\ci{-0.047}{+0.017} \\
+ & & $\checkmark$ & & VLM only & 0.441 & 0.563 & 0.584 & 0.369 / 0.484 / 0.02 & 0.513 / 0.642 / 0.06 & $-0.015$\ci{-0.067}{+0.033} \\
+ & & & $\checkmark$ & Face only & 0.421 & 0.572 & 0.647 & 0.348 / 0.471 / 0.25 & 0.493 / 0.673 / 0.17 & $+0.006$\ci{-0.047}{+0.059} \\
+\midrule
+$\checkmark$ & $\checkmark$ & & & Pose + annotation & 0.437 & 0.560 & 0.628 & 0.412 / 0.503 / 0.29 & 0.463 / 0.617 / 0.30 & $-0.011$\ci{-0.057}{+0.032} \\
+$\checkmark$ & & $\checkmark$ & & Pose + VLM & 0.459 & 0.569 & 0.577 & 0.387 / 0.491 / 0.05 & 0.532 / 0.646 / 0.12 & $-0.033$\ci{-0.097}{+0.029} \\
+$\checkmark$ & & & $\checkmark$ & Pose + face & 0.419 & 0.537 & 0.643 & 0.367 / 0.465 / 0.25 & 0.471 / 0.608 / 0.27 & $+0.007$\ci{-0.051}{+0.067} \\
+ & $\checkmark$ & $\checkmark$ & & Annotation + VLM & 0.425 & 0.564 & 0.613 & 0.399 / 0.499 / 0.24 & \best{0.450} / 0.629 / 0.25 & $+0.001$\ci{-0.034}{+0.039} \\
+ & $\checkmark$ & & $\checkmark$ & Annotation + face & 0.428 & 0.576 & 0.603 & 0.382 / 0.490 / 0.35 & 0.474 / 0.662 / 0.24 & $-0.002$\ci{-0.040}{+0.038} \\
+ & & $\checkmark$ & $\checkmark$ & \best{VLM + face} & \best{0.398} & \best{0.523} & \best{0.678} & \best{0.331} / \best{0.444} / 0.30 & 0.466 / \best{0.602} / 0.26 & \best{$+0.028$}\ci{-0.027}{+0.080} \\
+\midrule
+$\checkmark$ & $\checkmark$ & & $\checkmark$ & Pose + annot.\ + face (full model) & 0.419 & 0.550 & 0.631 & 0.378 / 0.481 / \best{0.37} & 0.459 / 0.620 / \best{0.34} & $+0.008$\ci{-0.041}{+0.052} \\
+$\checkmark$ & & $\checkmark$ & $\checkmark$ & Pose + VLM + face & 0.425 & 0.546 & 0.620 & 0.357 / 0.465 / 0.25 & 0.494 / 0.628 / 0.24 & $+0.001$\ci{-0.058}{+0.061} \\
+$\checkmark$ & $\checkmark$ & $\checkmark$ & & Pose + annotation + VLM & 0.440 & 0.565 & 0.622 & 0.415 / 0.509 / 0.28 & 0.464 / 0.622 / 0.29 & $-0.013$\ci{-0.060}{+0.032} \\
+ & $\checkmark$ & $\checkmark$ & $\checkmark$ & Annotation + VLM + face & 0.415 & 0.554 & 0.619 & 0.370 / 0.476 / \best{0.37} & 0.460 / 0.632 / 0.29 & $+0.011$\ci{-0.030}{+0.050} \\
+\midrule
+$\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & All four streams & 0.427 & 0.555 & 0.630 & 0.391 / 0.487 / 0.36 & 0.464 / 0.623 / \best{0.34} & $-0.001$\ci{-0.051}{+0.044} \\
+\bottomrule
+\end{tabular}%
+}
+\tabledesc{Each row is the ContextPose model of the same row in Table~\ref{tab:streams}, retrained to regress the confidence-weighted consensus labels ($[-1, 1]$ scale) instead of the annotators' vote shares. The models of Table~\ref{tab:streams} predict vote shares, which cannot be converted to consensus labels: a vote share counts neutral and negative valence votes alike, and ignores the annotators' confidence.
+\emph{Protocol:} the clips, folds, streams and training settings of Table~\ref{tab:streams} (153 development clips, video-grouped 5-fold cross-validation with duplicate videos merged; width 64, dropout 0.3, weight decay 0.05, learning rate $3\times10^{-4}$, pose augmentation, up to 60 epochs with patience 10), except the objective: squared error on the consensus labels for every row. Predictions are averaged over 5 seeds.
+\emph{Offsets:} rows with A start from the training folds' median label per indicator combination (the lookup) and learn a correction; rows without A start from the training folds' overall median, so no annotation information reaches them.
+\emph{Metrics:} as in Table~\ref{tab:spec}. On these clips a single constant prediction has mAP 0.52 (positive shares 0.80 for valence and 0.24 for arousal). Gain is the lookup's mean MAE minus the model's (positive means better than the lookup), with a 95\% participant-bootstrap interval. The lookup here (0.426) differs slightly from Table~\ref{tab:spec} (0.425) because the folds differ. Bold marks the best value in each column.
+\emph{Findings:}
+\begin{itemize}
+  \item VLM + face is the best regressor on every summary metric (mean MAE 0.398, mean RMSE 0.523, mAP 0.678), but its gain over the lookup includes zero ($+0.028$\ci{-0.027}{+0.080}). No row's interval excludes zero.
+  \item Every network has a lower mean RMSE than the lookup (0.523--0.576 vs 0.586), including those without the annotation. The lookup's group medians often sit at the ends of the scale (e.g.\ arousal $-1.00$), so its misses are large.
+  \item The face is the stream that helps: six of the eight rows with the face have a lower mean MAE than the lookup (the other two are within 0.002), against one of the seven rows without it (by 0.001).
+  \item Pose is mixed. It lowers mean MAE when added to the face (0.421 to 0.419) or to annotation + face (0.428 to 0.419), and raises it when added to VLM + face (0.398 to 0.425) or to the VLM (0.441 to 0.459); none of these changes is outside the noise.
+  \item The ranking differs from the binary calls: annotation + face, the best valence caller in Table~\ref{tab:streams}, only matches the lookup here ($-0.002$).
+\end{itemize}}
+\end{table}
+
 % \begin{table}[!htbp]
 % \centering
 % \caption{\textbf{Held-out test set, scored once} (29 usable test clips from 20 videos not seen in development; regression of the consensus labels). All predictors were fitted on the 153 development clips, and the candidate was fixed in advance from cross-validation: the lookup for valence and a linear model on context plus nine hand-crafted movement features per window (head, elbow, wrist and body speed, wrist height and spread, head bob) for arousal. The movement signal did not replicate (arousal CCC 0.00); the lookup's cross-validated performance carried over, making it the only predictor confirmed on new videos. MAE and RMSE lower is better; CCC higher is better (0.00 = no agreement); mAP higher is better (defined as in Table~\ref{tab:spec}; a constant prediction scores the test clips' positive share, 0.79 for valence and 0.28 for arousal, so mAP 0.53). Bold: best.}
@@ -684,5 +733,159 @@ All four streams & 34\% & 27\%\ci{19}{39} & 29 & 26 & 0 & 55 \\
 \caption{\textbf{The 145 development clips on the annotator-vote plane.} Each clip is placed at the share of annotators voting positive valence and high arousal (thirds with three annotators; coincident clips are spread slightly). The lines at one half separate the quadrants. Filled points are clips that V3 (annotation + face) places in the right quadrant; hollow points are its errors.}
 \label{fig:quadrant_clips}
 \end{figure}
+
+%=====================================================================
+% Subject features: pose, EmotionCLIP, or both
+%=====================================================================
+
+\begin{table}[!htbp]
+\centering
+\caption{\textbf{Pose, EmotionCLIP or both as the subject features, on the binary valence and arousal calls} (cross-validated, 5-seed ensembles). Each block is a stream set of Table~\ref{tab:streams} that includes pose; within it, only the per-step subject features change.}
+\label{tab:subject}
+\small
+\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{llcccccccccc}
+\toprule
+ & & \multicolumn{3}{c}{Valence: positive vs not ($n{=}150$)} & \multicolumn{3}{c}{Arousal: high vs low ($n{=}148$)} & \multicolumn{4}{c}{Difference from the block's pose row} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(lr){9-12}
+ & & & & & & & & \multicolumn{2}{c}{Valence} & \multicolumn{2}{c}{Arousal} \\
+\cmidrule(lr){9-10}\cmidrule(lr){11-12}
+Other streams & Subject & Acc. & Bal. acc. & AUC & Acc. & Bal. acc. & AUC & Bal. acc. & AUC & Bal. acc. & AUC \\
+\midrule
+\multicolumn{2}{l}{Annotators (each vs the other two)} & 79\% & 79\% & -- & 81\% & 77\% & -- & & & & \\
+\multicolumn{2}{l}{Always majority} & 67\% & 50\% & 0.50 & 78\% & 50\% & 0.50 & & & & \\
+\multicolumn{2}{l}{Annotation lookup (no network)} & 55\% & 53\% & 0.55 & 60\% & 68\% & 0.63 & & & & \\
+\midrule
+\multirow{4}{*}{None (subject only)} & Pose & 48\% & 46\%\ci{34}{59} & 0.52 & 55\% & 53\%\ci{40}{68} & 0.57 & -- & -- & -- & -- \\
+ & EmotionCLIP & 51\% & 48\%\ci{34}{62} & 0.48 & 78\% & 67\%\ci{57}{79} & 0.75 & +1\ci{$-$19}{+22} & $-$0.03\ci{$-$0.26}{+0.21} & +14\ci{$-$3}{+30} & \best{+0.18}\ci{+0.01}{+0.33} \\
+ & P + E, concat & 59\% & 55\%\ci{44}{66} & 0.56 & 76\% & \best{75\%}\ci{65}{84} & 0.74 & +8\ci{$-$3}{+21} & +0.04\ci{$-$0.11}{+0.21} & \best{+22}\ci{+2}{+38} & \best{+0.17}\ci{+0.02}{+0.30} \\
+ & P + E, separate & 53\% & 50\%\ci{37}{65} & 0.48 & 73\% & 66\%\ci{52}{77} & 0.72 & +4\ci{$-$11}{+21} & $-$0.03\ci{$-$0.19}{+0.13} & +13\ci{$-$9}{+31} & +0.15\ci{$-$0.04}{+0.30} \\
+\midrule
+\multirow{4}{*}{Annotation} & Pose & 53\% & 54\%\ci{42}{63} & 0.60 & 61\% & 62\%\ci{50}{74} & 0.68 & -- & -- & -- & -- \\
+ & EmotionCLIP & 57\% & 56\%\ci{43}{69} & 0.59 & 72\% & 59\%\ci{50}{68} & 0.78 & +3\ci{$-$6}{+13} & 0.00\ci{$-$0.12}{+0.09} & $-$3\ci{$-$17}{+10} & +0.10\ci{$-$0.02}{+0.23} \\
+ & P + E, concat & 56\% & 57\%\ci{45}{70} & 0.62 & 77\% & 67\%\ci{57}{78} & 0.79 & +4\ci{$-$4}{+13} & +0.02\ci{$-$0.05}{+0.09} & +5\ci{$-$8}{+18} & \best{+0.11}\ci{+0.01}{+0.23} \\
+ & P + E, separate & 56\% & 54\%\ci{42}{67} & 0.60 & 77\% & 66\%\ci{57}{75} & 0.81 & +1\ci{$-$11}{+13} & 0.00\ci{$-$0.11}{+0.09} & +4\ci{$-$9}{+16} & \best{+0.13}\ci{+0.03}{+0.25} \\
+\midrule
+\multirow{4}{*}{VLM} & Pose & 49\% & 48\%\ci{35}{61} & 0.52 & 60\% & 60\%\ci{46}{71} & 0.55 & -- & -- & -- & -- \\
+ & EmotionCLIP & 46\% & 45\%\ci{32}{59} & 0.48 & 75\% & 66\%\ci{53}{78} & 0.75 & $-$4\ci{$-$23}{+16} & $-$0.03\ci{$-$0.28}{+0.23} & +5\ci{$-$10}{+24} & \best{+0.20}\ci{+0.03}{+0.35} \\
+ & P + E, concat & 58\% & 55\%\ci{44}{67} & 0.56 & 72\% & 67\%\ci{51}{78} & 0.74 & +7\ci{$-$4}{+18} & +0.04\ci{$-$0.14}{+0.21} & +7\ci{$-$8}{+21} & \best{+0.18}\ci{+0.03}{+0.32} \\
+ & P + E, separate & 55\% & 52\%\ci{39}{67} & 0.49 & 74\% & 65\%\ci{53}{80} & 0.73 & +4\ci{$-$12}{+21} & $-$0.03\ci{$-$0.22}{+0.19} & +4\ci{$-$14}{+29} & \best{+0.18}\ci{+0.01}{+0.33} \\
+\midrule
+\multirow{4}{*}{Face} & Pose & 49\% & 50\%\ci{36}{61} & 0.58 & 59\% & 55\%\ci{41}{68} & 0.61 & -- & -- & -- & -- \\
+ & EmotionCLIP & 52\% & 50\%\ci{37}{63} & 0.55 & 77\% & 66\%\ci{53}{79} & 0.73 & 0\ci{$-$18}{+20} & $-$0.03\ci{$-$0.25}{+0.21} & +11\ci{$-$8}{+31} & +0.12\ci{$-$0.07}{+0.27} \\
+ & P + E, concat & 62\% & 58\%\ci{46}{71} & 0.62 & 78\% & 69\%\ci{56}{82} & 0.78 & +9\ci{$-$4}{+23} & +0.05\ci{$-$0.11}{+0.22} & +14\ci{$-$3}{+30} & \best{+0.17}\ci{+0.02}{+0.29} \\
+ & P + E, separate & 58\% & 55\%\ci{44}{67} & 0.53 & 77\% & 68\%\ci{55}{80} & 0.75 & +6\ci{$-$9}{+22} & $-$0.05\ci{$-$0.22}{+0.15} & +13\ci{$-$5}{+29} & +0.14\ci{$-$0.01}{+0.27} \\
+\midrule
+\multirow{4}{*}{Annotation + face} & Pose & 59\% & 58\%\ci{46}{69} & 0.63 & 61\% & 60\%\ci{48}{74} & 0.69 & -- & -- & -- & -- \\
+ & EmotionCLIP & 57\% & 56\%\ci{41}{69} & 0.62 & 74\% & 66\%\ci{54}{80} & 0.80 & $-$2\ci{$-$19}{+15} & 0.00\ci{$-$0.13}{+0.10} & +6\ci{$-$9}{+22} & +0.11\ci{$-$0.01}{+0.23} \\
+ & P + E, concat & 62\% & 59\%\ci{47}{70} & \best{0.66} & 74\% & 71\%\ci{59}{80} & \best{0.82} & +1\ci{$-$13}{+14} & +0.03\ci{$-$0.08}{+0.13} & +10\ci{$-$5}{+21} & \best{+0.13}\ci{+0.03}{+0.23} \\
+ & P + E, separate & 57\% & 55\%\ci{43}{66} & 0.62 & 74\% & 60\%\ci{51}{71} & \best{0.82} & $-$3\ci{$-$17}{+10} & 0.00\ci{$-$0.11}{+0.09} & 0\ci{$-$12}{+12} & \best{+0.13}\ci{+0.04}{+0.24} \\
+\midrule
+\multirow{4}{*}{VLM + face} & Pose & 51\% & 49\%\ci{35}{63} & 0.58 & 64\% & 64\%\ci{52}{75} & 0.64 & -- & -- & -- & -- \\
+ & EmotionCLIP & 49\% & 49\%\ci{36}{63} & 0.55 & 74\% & 63\%\ci{51}{78} & 0.75 & 0\ci{$-$18}{+21} & $-$0.02\ci{$-$0.24}{+0.20} & $-$1\ci{$-$15}{+16} & +0.11\ci{$-$0.05}{+0.24} \\
+ & P + E, concat & 61\% & 57\%\ci{45}{69} & 0.63 & 78\% & 72\%\ci{62}{83} & 0.80 & +8\ci{$-$4}{+22} & +0.05\ci{$-$0.09}{+0.20} & +8\ci{$-$1}{+18} & \best{+0.16}\ci{+0.07}{+0.25} \\
+ & P + E, separate & 63\% & 60\%\ci{49}{71} & 0.54 & 74\% & 63\%\ci{52}{74} & 0.72 & +11\ci{$-$6}{+28} & $-$0.04\ci{$-$0.22}{+0.16} & $-$1\ci{$-$12}{+12} & +0.09\ci{$-$0.06}{+0.21} \\
+\midrule
+\multirow{4}{*}{Annotation + VLM} & Pose & 57\% & 58\%\ci{46}{67} & 0.59 & 61\% & 59\%\ci{47}{71} & 0.67 & -- & -- & -- & -- \\
+ & EmotionCLIP & 56\% & 54\%\ci{41}{67} & 0.58 & 76\% & 64\%\ci{55}{73} & 0.78 & $-$5\ci{$-$22}{+14} & $-$0.01\ci{$-$0.14}{+0.11} & +6\ci{$-$9}{+19} & \best{+0.12}\ci{+0.01}{+0.23} \\
+ & P + E, concat & 63\% & 60\%\ci{50}{70} & 0.61 & 69\% & 61\%\ci{49}{72} & 0.78 & +2\ci{$-$4}{+8} & +0.02\ci{$-$0.04}{+0.08} & +2\ci{$-$10}{+14} & \best{+0.11}\ci{+0.02}{+0.21} \\
+ & P + E, separate & 60\% & 61\%\ci{50}{72} & 0.62 & \best{79\%} & 65\%\ci{55}{77} & 0.78 & +3\ci{$-$9}{+16} & +0.02\ci{$-$0.09}{+0.13} & +6\ci{$-$7}{+19} & \best{+0.12}\ci{+0.02}{+0.22} \\
+\midrule
+\multirow{4}{*}{Annot.\ + VLM + face} & Pose & 60\% & 58\%\ci{44}{70} & \best{0.66} & 58\% & 56\%\ci{43}{70} & 0.70 & -- & -- & -- & -- \\
+ & EmotionCLIP & 50\% & 49\%\ci{37}{61} & 0.60 & 74\% & 64\%\ci{52}{76} & 0.79 & $-$9\ci{$-$27}{+8} & $-$0.05\ci{$-$0.21}{+0.09} & +8\ci{$-$6}{+22} & +0.08\ci{$-$0.04}{+0.21} \\
+ & P + E, concat & \best{65\%} & \best{63\%}\ci{51}{72} & 0.65 & 75\% & 71\%\ci{58}{81} & 0.81 & +5\ci{$-$4}{+13} & 0.00\ci{$-$0.08}{+0.08} & \best{+15}\ci{+2}{+26} & \best{+0.10}\ci{+0.04}{+0.18} \\
+ & P + E, separate & 58\% & 57\%\ci{45}{69} & 0.62 & 77\% & 65\%\ci{53}{78} & 0.79 & $-$1\ci{$-$16}{+14} & $-$0.03\ci{$-$0.17}{+0.09} & +9\ci{0}{+19} & +0.09\ci{0.00}{+0.18} \\
+\bottomrule
+\end{tabular}%
+}
+\tabledesc{Each block takes one row of Table~\ref{tab:streams} that uses pose and keeps its context (annotation or VLM), face stream and offset. Only the per-step subject features, which the context query attends over in each window, change.
+\emph{Subject features:}
+\begin{itemize}
+  \item Pose: the row of Table~\ref{tab:streams} itself (11 joints with $x$, $y$, confidence and speed; 44 values per step).
+  \item EmotionCLIP: the frozen EmotionCLIP frame embedding of Table~\ref{tab:eclip} (512-d, from the 224\,px crop with the child's subject mask) plus a flag for steps where the child is tracked, 513 values per step. It is layer-normalised and fed through the temporal encoder in place of pose. This is the control that shows what EmotionCLIP contributes without pose.
+  \item P + E, concat: pose and EmotionCLIP are each layer-normalised and linearly projected to half the width (32 each), concatenated at every step and fed through the shared temporal encoder. The equal halves stop the 513 EmotionCLIP values from swamping the 44 pose values.
+  \item P + E, separate: each has its own temporal encoder, and the context query attends over both token sequences (32 pose and 32 EmotionCLIP tokens per window, each tagged with a learned modality embedding).
+\end{itemize}
+\emph{Protocol:} as in Table~\ref{tab:streams}: the same 153 development clips, video-grouped folds, training settings and votes objective, with 5 seeds. Pose augmentation applies to the pose only.
+\emph{Metrics:} as in Table~\ref{tab:streams}. The difference columns give each row minus its block's pose row on the same clips (balanced accuracy in points, and AUC), with 95\% participant-bootstrap intervals. In those columns, bold marks a difference whose interval excludes zero; in the other columns, bold marks the best model.
+\emph{Findings:}
+\begin{itemize}
+  \item Arousal: pose + EmotionCLIP (concat) ranks clips better than pose in all eight blocks (AUC $+0.10$ to $+0.18$, every interval above zero). It reaches 0.82 with annotation + face, against 0.75 for the best row of Table~\ref{tab:streams}. Its arousal balanced accuracy is 2 to 22 points higher, above zero for the subject alone (75\%) and with annotation + VLM + face.
+  \item The arousal signal comes mainly from EmotionCLIP. EmotionCLIP alone also raises arousal AUC ($+0.08$ to $+0.20$, above zero in three blocks), and no concat-minus-EmotionCLIP difference excludes zero on either target (paired intervals, not shown).
+  \item Concatenation is at least as good as separate encoders. Separate encoders raise arousal AUC above zero in four blocks, and concatenation has the higher arousal balanced accuracy for the subject alone ($+9\ci{+1}{+19}$ points) and with VLM + face ($+10\ci{+2}{+16}$).
+  \item Valence is unchanged within noise. Concatenation raises valence balanced accuracy in all eight blocks (1 to 9 points), but no interval excludes zero. The best, 63\% with annotation + VLM + face, is below annotation + face without pose in Table~\ref{tab:streams} (65\%).
+  \item Against the lookup (68\% arousal balanced accuracy), no row's balanced-accuracy gain excludes zero, as in Table~\ref{tab:streams}. Arousal AUC gains over the lookup exclude zero only in the blocks with the annotation, which start from the lookup's offsets.
+\end{itemize}}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\caption{\textbf{Pose, EmotionCLIP or both as the subject features, regressing consensus valence and arousal} (cross-validated, 5 seeds). Lower MAE and RMSE and higher CCC and mAP are better.}
+\label{tab:subject_reg}
+\small
+\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{llccccccc}
+\toprule
+Other streams & Subject & Mean MAE & Mean RMSE & mAP & V MAE / RMSE / CCC & A MAE / RMSE / CCC & Gain vs lookup & Gain vs pose \\
+\midrule
+\multicolumn{2}{l}{Overall median} & 0.467 & 0.606 & 0.515 & 0.371 / 0.494 / 0.00 & 0.564 / 0.718 / $-0.05$ & -- & -- \\
+\multicolumn{2}{l}{Annotation lookup (no network)} & 0.426 & 0.586 & 0.585 & 0.372 / 0.493 / 0.21 & 0.480 / 0.679 / 0.17 & -- & -- \\
+\midrule
+\multirow{4}{*}{None (subject only)} & Pose & 0.450 & 0.560 & 0.600 & 0.381 / 0.486 / 0.07 & 0.518 / 0.635 / 0.13 & $-0.023$\ci{-0.090}{+0.040} & -- \\
+ & EmotionCLIP & 0.450 & 0.565 & 0.655 & 0.415 / 0.506 / 0.03 & 0.485 / 0.623 / 0.24 & $-0.024$\ci{-0.072}{+0.027} & $-0.001$\ci{-0.040}{+0.047} \\
+ & P + E, concat & 0.438 & 0.550 & 0.687 & 0.393 / 0.481 / 0.08 & 0.484 / 0.619 / 0.24 & $-0.012$\ci{-0.055}{+0.031} & $+0.011$\ci{-0.027}{+0.054} \\
+ & P + E, separate & 0.438 & 0.552 & 0.654 & 0.411 / 0.499 / 0.05 & 0.465 / 0.605 / 0.33 & $-0.012$\ci{-0.067}{+0.043} & $+0.011$\ci{-0.031}{+0.057} \\
+\midrule
+\multirow{4}{*}{Annotation} & Pose & 0.437 & 0.560 & 0.628 & 0.412 / 0.503 / 0.29 & 0.463 / 0.617 / 0.30 & $-0.011$\ci{-0.057}{+0.032} & -- \\
+ & EmotionCLIP & 0.458 & 0.580 & 0.697 & 0.431 / 0.525 / 0.22 & 0.485 / 0.635 / 0.36 & $-0.032$\ci{-0.077}{+0.020} & $-0.021$\ci{-0.073}{+0.032} \\
+ & P + E, concat & 0.439 & 0.556 & 0.670 & 0.395 / 0.492 / 0.27 & 0.483 / 0.620 / 0.35 & $-0.012$\ci{-0.050}{+0.027} & $-0.001$\ci{-0.034}{+0.033} \\
+ & P + E, separate & 0.445 & 0.566 & 0.687 & 0.417 / 0.512 / 0.24 & 0.473 / 0.620 / 0.36 & $-0.019$\ci{-0.055}{+0.023} & $-0.008$\ci{-0.043}{+0.030} \\
+\midrule
+\multirow{4}{*}{VLM} & Pose & 0.459 & 0.569 & 0.577 & 0.387 / 0.491 / 0.05 & 0.532 / 0.646 / 0.12 & $-0.033$\ci{-0.097}{+0.029} & -- \\
+ & EmotionCLIP & 0.441 & 0.557 & 0.682 & 0.410 / 0.502 / 0.04 & 0.472 / 0.612 / 0.28 & $-0.015$\ci{-0.063}{+0.037} & $+0.018$\ci{-0.019}{+0.062} \\
+ & P + E, concat & 0.435 & 0.550 & 0.677 & 0.386 / 0.477 / 0.08 & 0.485 / 0.624 / 0.23 & $-0.009$\ci{-0.058}{+0.038} & $+0.024$\ci{-0.009}{+0.057} \\
+ & P + E, separate & 0.436 & 0.542 & 0.666 & 0.390 / 0.487 / 0.09 & 0.482 / 0.598 / 0.29 & $-0.010$\ci{-0.064}{+0.045} & $+0.023$\ci{-0.008}{+0.055} \\
+\midrule
+\multirow{4}{*}{Face} & Pose & 0.419 & 0.537 & 0.643 & 0.367 / 0.465 / 0.25 & 0.471 / 0.608 / 0.27 & $+0.007$\ci{-0.051}{+0.067} & -- \\
+ & EmotionCLIP & 0.432 & 0.552 & 0.692 & 0.410 / 0.506 / 0.10 & 0.455 / 0.598 / 0.35 & $-0.006$\ci{-0.060}{+0.057} & $-0.013$\ci{-0.058}{+0.038} \\
+ & P + E, concat & 0.423 & 0.533 & 0.691 & 0.363 / \best{0.461} / 0.16 & 0.482 / 0.604 / 0.28 & $+0.004$\ci{-0.047}{+0.055} & $-0.003$\ci{-0.042}{+0.032} \\
+ & P + E, separate & \best{0.412} & 0.538 & 0.667 & 0.373 / 0.480 / 0.16 & \best{0.451} / 0.597 / 0.39 & \best{$+0.014$}\ci{-0.047}{+0.080} & $+0.007$\ci{-0.035}{+0.046} \\
+\midrule
+\multirow{4}{*}{Annotation + face} & Pose & 0.419 & 0.550 & 0.631 & 0.378 / 0.481 / \best{0.37} & 0.459 / 0.620 / 0.34 & $+0.008$\ci{-0.041}{+0.052} & -- \\
+ & EmotionCLIP & 0.455 & 0.577 & 0.678 & 0.407 / 0.506 / 0.26 & 0.504 / 0.648 / 0.33 & $-0.029$\ci{-0.072}{+0.020} & $-0.036$\ci{-0.078}{+0.010} \\
+ & P + E, concat & 0.422 & 0.541 & 0.680 & 0.371 / 0.471 / 0.34 & 0.473 / 0.612 / 0.38 & $+0.004$\ci{-0.040}{+0.049} & $-0.004$\ci{-0.031}{+0.027} \\
+ & P + E, separate & 0.432 & 0.545 & \best{0.710} & 0.397 / 0.495 / 0.31 & 0.468 / \best{0.596} / \best{0.43} & $-0.006$\ci{-0.051}{+0.044} & $-0.014$\ci{-0.044}{+0.021} \\
+\midrule
+\multirow{4}{*}{VLM + face} & Pose & 0.425 & 0.546 & 0.620 & \best{0.357} / 0.465 / 0.25 & 0.494 / 0.628 / 0.24 & $+0.001$\ci{-0.058}{+0.061} & -- \\
+ & EmotionCLIP & 0.442 & 0.558 & 0.653 & 0.395 / 0.487 / 0.11 & 0.489 / 0.630 / 0.27 & $-0.016$\ci{-0.075}{+0.044} & $-0.017$\ci{-0.064}{+0.035} \\
+ & P + E, concat & 0.414 & \best{0.532} & 0.678 & 0.359 / 0.464 / 0.18 & 0.468 / 0.600 / 0.27 & $+0.013$\ci{-0.041}{+0.065} & $+0.012$\ci{-0.025}{+0.045} \\
+ & P + E, separate & 0.429 & 0.541 & 0.682 & 0.388 / 0.482 / 0.14 & 0.470 / 0.599 / 0.31 & $-0.003$\ci{-0.055}{+0.053} & $-0.003$\ci{-0.040}{+0.037} \\
+\midrule
+\multirow{4}{*}{Annotation + VLM} & Pose & 0.440 & 0.565 & 0.622 & 0.415 / 0.509 / 0.28 & 0.464 / 0.622 / 0.29 & $-0.013$\ci{-0.060}{+0.032} & -- \\
+ & EmotionCLIP & 0.461 & 0.577 & 0.674 & 0.429 / 0.525 / 0.22 & 0.493 / 0.629 / 0.35 & $-0.035$\ci{-0.078}{+0.014} & $-0.022$\ci{-0.061}{+0.022} \\
+ & P + E, concat & 0.448 & 0.568 & 0.677 & 0.401 / 0.498 / 0.27 & 0.495 / 0.638 / 0.32 & $-0.022$\ci{-0.065}{+0.019} & $-0.009$\ci{-0.048}{+0.027} \\
+ & P + E, separate & 0.442 & 0.557 & 0.679 & 0.400 / 0.501 / 0.27 & 0.485 / 0.614 / 0.37 & $-0.016$\ci{-0.056}{+0.027} & $-0.003$\ci{-0.036}{+0.031} \\
+\midrule
+\multirow{4}{*}{Annot.\ + VLM + face} & Pose & 0.427 & 0.555 & 0.630 & 0.391 / 0.487 / 0.36 & 0.464 / 0.623 / 0.34 & $-0.001$\ci{-0.051}{+0.044} & -- \\
+ & EmotionCLIP & 0.436 & 0.557 & 0.688 & 0.408 / 0.505 / 0.26 & 0.463 / 0.609 / 0.38 & $-0.009$\ci{-0.050}{+0.040} & $-0.008$\ci{-0.046}{+0.032} \\
+ & P + E, concat & 0.427 & 0.556 & 0.680 & 0.381 / 0.485 / 0.33 & 0.472 / 0.628 / 0.34 & $0.000$\ci{-0.044}{+0.044} & $+0.001$\ci{-0.027}{+0.028} \\
+ & P + E, separate & 0.433 & 0.550 & 0.698 & 0.388 / 0.490 / 0.31 & 0.478 / 0.609 / 0.39 & $-0.006$\ci{-0.052}{+0.043} & $-0.005$\ci{-0.039}{+0.031} \\
+\bottomrule
+\end{tabular}%
+}
+\tabledesc{The blocks and subject features of Table~\ref{tab:subject}, retrained to regress the confidence-weighted consensus labels ($[-1, 1]$ scale) instead of the annotators' vote shares. The pose rows are the corresponding rows of Table~\ref{tab:streams} retrained the same way.
+\emph{Protocol:} the clips, folds and training settings of Table~\ref{tab:streams}, except the objective: squared error on the consensus labels for every row. Predictions are averaged over 5 seeds.
+\emph{Offsets:} blocks with the annotation start from the training folds' median label per indicator combination (the lookup) and learn a correction. The others start from the training folds' overall median, so no annotation information reaches them.
+\emph{Metrics:} as in Table~\ref{tab:spec}. Gain vs lookup is the lookup's mean MAE minus the model's, and gain vs pose is the block's pose row's mean MAE minus the model's (positive means the row is better). Both have 95\% participant-bootstrap intervals. On these clips a single constant prediction has mAP 0.52. Bold marks the best value in each column.
+\emph{Findings:}
+\begin{itemize}
+  \item Mean MAE barely moves. Every gain over pose lies between $-0.036$ and $+0.024$ with an interval that includes zero, and no row's gain over the lookup excludes zero. The lowest mean MAE is 0.412 (separate encoders with the face).
+  \item EmotionCLIP improves the ranking. Each of the 24 rows with EmotionCLIP has a higher mAP than its block's pose row (0.653--0.710 vs 0.577--0.643); the best is 0.710 (separate encoders with annotation + face). No interval was computed for mAP.
+  \item EmotionCLIP raises arousal CCC, most with separate encoders, which beat pose in all eight blocks (up to 0.43 with annotation + face, vs 0.34 for pose). Valence CCC falls in every block with the annotation or the face (e.g.\ face: 0.25 with pose, 0.16 with either fusion).
+  \item As on the binary calls, EmotionCLIP carries arousal information but not valence information, and adding it does not lower the error of the point predictions.
+\end{itemize}}
+\end{table}
 
 \end{document}
