@@ -43,6 +43,7 @@ STYLE = {
     "frozen": ("#EFEFEF", "#8C8C8C"),
     "out": ("#FFFFFF", "#2B2B2B"),
     "fixed": ("#FFFFFF", "#C2741F"),
+    "data": ("#FFFFFF", "#3A6EA8"),
 }
 
 W_MM, H_MM = 171.0, 133.0
@@ -237,7 +238,7 @@ for cx in COLS:
 N_CELLS = 16
 for cx, reg in zip(COLS, REGIONS):
     arrow((cx, Y_EXTRACT - H_EXTRACT / 2), (cx, Y_X + H_X / 2))
-    box(cx, Y_X, 23, H_X, "beh", lw=0.8)
+    box(cx, Y_X, 23, H_X, "data", lw=0.8)
     cw, ch = 1.05, 3.0
     x0 = cx - N_CELLS * cw / 2
     for k in range(N_CELLS):
@@ -291,9 +292,11 @@ text(
 profiles = (
     lambda t: 0.25 + 0.15 * math.sin(6.0 * t),
     lambda t: 0.15 + 0.85 * math.exp(-((t - 0.28) ** 2) / 0.012),
-    lambda t: 0.12
-    + 0.7 * math.exp(-((t - 0.72) ** 2) / 0.02)
-    + 0.25 * math.exp(-((t - 0.2) ** 2) / 0.01),
+    lambda t: (
+        0.12
+        + 0.7 * math.exp(-((t - 0.72) ** 2) / 0.02)
+        + 0.25 * math.exp(-((t - 0.2) ** 2) / 0.01)
+    ),
 )
 for cx, prof in zip(COLS, profiles):
     cw = 1.05
@@ -344,7 +347,7 @@ for cx in COLS:
 # --------------------------------------------------------------------------
 # Context stream (left)
 # --------------------------------------------------------------------------
-box(CTX_X, Y_EXTRACT, CTX_W, H_EXTRACT, "ctx")
+box(CTX_X, Y_EXTRACT, CTX_W, H_EXTRACT, "fixed")
 text(CTX_X, Y_EXTRACT + 4.6, r"Event context  $\mathbf{c}$", weight="bold")
 text(CTX_X, Y_EXTRACT + 0.2, r"indicators ($d_c = 4$)  or", size=FS_S, color=MUTED)
 text(CTX_X, Y_EXTRACT - 3.6, r"VLM description ($d_c = 384$)", size=FS_S, color=MUTED)
@@ -538,18 +541,22 @@ text(
 # --------------------------------------------------------------------------
 LX, LY = 124.0, 14.6
 items = (
-    ("frozen", "-", "frozen, pretrained"),
-    ("beh", "-", "trainable"),
-    ("fixed", "-", "fixed, not trained"),
+    ("frozen", "frozen, pretrained"),
+    (("beh", "ctx", "fuse", "face"), "trainable (colour = stream)"),
+    ("fixed", "data or fixed, not trained"),
 )
-for i, (kind, ls, name) in enumerate(items):
+for i, (kind, name) in enumerate(items):
     y = LY - i * 4.0
-    box(LX, y, 5.5, 3.2, kind, ls=ls, lw=0.8, r=0.7)
+    if isinstance(kind, tuple):
+        # One swatch per stream, filling the same width as a single swatch.
+        sw = 5.5 / len(kind)
+        for k, stream in enumerate(kind):
+            box(LX - 2.75 + (k + 0.5) * sw, y, sw - 0.35, 3.2, stream, lw=0.8, r=0.4)
+    else:
+        box(LX, y, 5.5, 3.2, kind, lw=0.8, r=0.7)
     text(LX + 4.2, y, name, size=FS_S, ha="left", color=MUTED)
 y = LY - 3 * 4.0
-ax.plot(
-    [LX - 2.75, LX + 2.75], [y, y], color=STYLE["face"][1], lw=0.9, ls=(0, (3, 2))
-)
+ax.plot([LX - 2.75, LX + 2.75], [y, y], color=STYLE["face"][1], lw=0.9, ls=(0, (3, 2)))
 text(LX + 4.2, y, "optional", size=FS_S, ha="left", color=MUTED)
 
 for ext, kw in (("pdf", {}), ("svg", {}), ("png", {"dpi": 300})):
