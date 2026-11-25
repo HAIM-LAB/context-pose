@@ -40,6 +40,7 @@ NAMES = {
     "S": "VST",
     "H": "HOG-HOF",
 }
+COUNTS = {6: "six", 8: "eight"}
 
 
 def video(name: str) -> tuple[str, str]:
@@ -74,26 +75,29 @@ ROWS = [
 ]
 
 
-def ticks(streams: str) -> str:
-    return " & ".join(r"$\checkmark$" if s in streams else "" for s in COLUMNS)
+def ticks(streams: str, columns: str = COLUMNS) -> str:
+    return " & ".join(r"$\checkmark$" if s in streams else "" for s in columns)
 
 
-def label(streams: str, suffix: str) -> str:
-    if len(streams) == len(COLUMNS):
-        return "All six" + suffix
-    text = " + ".join(NAMES[s] for s in COLUMNS if s in streams)
+def label(streams: str, suffix: str, columns: str = COLUMNS, names=NAMES) -> str:
+    if len(streams) == len(columns):
+        return f"All {COUNTS[len(columns)]}" + suffix
+    text = " + ".join(names[s] for s in columns if s in streams)
     return text[0].upper() + text[1:] + (" only" if len(streams) == 1 else "") + suffix
 
 
-def rows_with_groups(results: list[dict], metrics: int) -> list[str]:
+def rows_with_groups(
+    results: list[dict], metrics: int, columns: str = COLUMNS, names=NAMES
+) -> list[str]:
     """Table rows, with a rule and a group heading wherever the group changes."""
-    width = len(COLUMNS) + 1 + metrics
+    width = len(columns) + 1 + metrics
     lines, previous = [], None
     for (group, streams, suffix, _), cells in results:
         if group != previous:
             lines += [r"\midrule", rf"\multicolumn{{{width}}}{{l}}{{\emph{{{group}}}}} \\"]  # fmt: skip
             previous = group
-        lines.append(f"{ticks(streams)} & {label(streams, suffix)} & {cells} \\\\")
+        row = f"{ticks(streams, columns)} & {label(streams, suffix, columns, names)}"
+        lines.append(f"{row} & {cells} \\\\")
     return lines
 
 
