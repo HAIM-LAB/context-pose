@@ -3,19 +3,22 @@
 Writes two tables over every combination of the four streams (singles, pairs,
 triples, all four), from the 5-seed cross-validation runs already on disk:
 
-* binary calls (votes-objective runs): accuracy, balanced accuracy with a 95%
-  participant-bootstrap interval, F1 of the positive class, MCC and AUC, for
-  valence positive vs not and arousal high vs low (annotator majority, ties
-  excluded). The ensemble's call is the majority of the seeds' calls and its
-  AUC uses the mean seed score, as in Table 1 (tab:streams).
-* regression (regression-objective runs, consensus labels on [-1, 1]):
+* binary calls (`--objective final` runs): accuracy, balanced accuracy with a
+  95% participant-bootstrap interval, F1 of the positive class, MCC and AUC,
+  for valence positive vs not and arousal high vs low, both from the final
+  annotation (Final_Annotation_v2.xlsx: positive / high when its score is
+  > 0). The ensemble's call is the majority of the seeds' calls and its AUC
+  uses the mean seed score, as in Table 1 (tab:streams).
+* regression (regression-objective runs, final annotation on [-1, 1]):
   Spearman rho, CCC, MAE, average precision and MCC per target, and mAP. The
   ensemble's prediction is the mean over seeds. AP ranks the clips with a
-  positive consensus label above the rest; MCC compares the signs of the
+  positive final annotation above the rest; MCC compares the signs of the
   prediction and of the label (> 0 vs <= 0).
 
 Rows without E reuse the runs of tab:streams and tab:streams_reg; rows with E
-are the `--subject eclip` runs of tab:subject and tab:subject_reg.
+are the `--subject eclip` runs of tab:subject and tab:subject_reg. The binary
+runs are those runs' votes-objective versions retrained on the final
+annotation with only the objective changed (`VOTES_RUNS` lists the originals).
 
     uv run python -m asd_contextpose.eclip_stream_tables \
         --output reports/eclip_streams.tex
@@ -35,8 +38,9 @@ ROOT = Path(__file__).resolve().parents[2]
 CHECKPOINTS = ROOT / "checkpoints"
 STREAMS = "EAVF"
 NAMES = {"E": "EmotionCLIP", "A": "annotation", "V": "VLM", "F": "face"}
-# Run folders under checkpoints/ for each stream set: (votes, regression).
-RUNS = {
+# Run folders under checkpoints/ for each stream set: (votes, regression). The
+# votes runs trained on vote shares; the tables use their final-objective reruns.
+VOTES_RUNS = {
     "E": ("subject/vot/E_subject", "subject/reg/E_subject"),
     "A": ("streams/T_A_context", "streams_reg/T_A_context"),
     "V": ("streams/V_vlm", "streams_reg/V_vlm"),
@@ -53,6 +57,8 @@ RUNS = {
     "AVF": ("streams/AVF_ann_vlm_face", "streams_reg/AVF_ann_vlm_face"),
     "EAVF": ("subject/vot/EAVF_all_four", "subject/reg/EAVF_all_four"),
 }
+# (binary, regression) run folders behind each table row.
+RUNS = {k: (f"final/eavf/{k}", reg) for k, (_, reg) in VOTES_RUNS.items()}
 TARGETS = votes.TARGETS
 
 
@@ -281,15 +287,15 @@ def binary_table(results: dict[str, dict], people: dict) -> str:
         r"  \item F: frozen FER ViT face embeddings, kept only on steps that pass the frontal, YuNet-detector and brightness quality gate.",
         r"\end{itemize}",
         r"\emph{Offsets:} rows with A start from the event-annotation lookup's log-odds and learn a correction to it; rows without A start from a constant offset fitted on the training folds, so no annotation information reaches them.",
-        r"\emph{Protocol:} as in the stream-ablation table (\code{tab:streams} in test.tex): 153 development clips, video-grouped 5-fold cross-validation with duplicate videos merged, votes objective, identical training settings for every row (width 64, dropout 0.3, weight decay 0.05, learning rate $3\times10^{-4}$, up to 60 epochs with patience 10). Rows without E are the runs of the stream-ablation table (\code{tab:streams} in test.tex).",
-        rf"\emph{{Targets:}} annotator-majority calls with ties excluded: valence positive vs not positive ({n['valence']} clips, {pos['valence']} positive); arousal high vs low ({n['arousal']} clips, {pos['arousal']} high).",
+        r"\emph{Protocol:} as in the stream-ablation table (\code{tab:streams} in test.tex): 153 development clips, video-grouped 5-fold cross-validation with duplicate videos merged, cross-entropy against the final annotation's binary classes, identical training settings for every row (width 64, dropout 0.3, weight decay 0.05, learning rate $3\times10^{-4}$, up to 60 epochs with patience 10). Rows without E have the settings of the stream-ablation table (\code{tab:streams} in test.tex).",
+        rf"\emph{{Targets:}} the final annotation (the confidence-weighted consensus of the three annotators): valence positive (score $> 0$) vs not positive ({n['valence']} clips, {pos['valence']} positive); arousal high (score $> 0$) vs low ({n['arousal']} clips, {pos['arousal']} high). Models are trained and scored on these classes.",
         r"\emph{Metrics:}",
         r"\begin{itemize}",
         r"  \item Calls are the majority of the 5 seeds' calls; AUC uses the mean seed score. Decision thresholds are set on each model's own training clips, never on the scored fold.",
         r"  \item Balanced accuracy is the mean per-class recall (chance 50\%), with 95\% participant-bootstrap intervals in brackets.",
         r"  \item F1 is for the positive class (positive valence; high arousal). MCC is the Matthews correlation coefficient between calls and labels ($-1$ to 1, 0 for chance or a constant call).",
         r"\end{itemize}",
-        r"\emph{References:} each annotator against the other two where those agree, always predicting the majority class, and the non-learned lookup (training-fold mean vote share per indicator combination). Bold marks the best model in each column.}",
+        r"\emph{References:} each annotator against the other two where those agree (a human-agreement reference; the final annotation includes each annotator's own vote, so scoring an annotator against it would be circular), always predicting the training folds' majority class, and the non-learned lookup (training-fold share of positive clips per indicator combination). Bold marks the best model in each column.}",
         r"\end{table}",
     ]  # fmt: skip
     return "\n".join(lines) + "\n"
@@ -316,7 +322,7 @@ def regression_table(results: dict[str, dict]) -> str:
     lines = [
         r"\begin{table}[!htbp]",
         r"\centering",
-        r"\caption{\textbf{Stream ablation without pose as regression of the consensus valence and arousal labels} "
+        r"\caption{\textbf{Stream ablation without pose as regression of the final valence and arousal annotation} "
         r"(cross-validated, 5 seeds). E = EmotionCLIP, A = event annotation, V = VLM scene description, F = face. "
         r"Higher Spearman, CCC, AP, MCC and mAP and lower MAE are better.}",
         r"\label{tab:eavf_reg}",
@@ -342,14 +348,14 @@ def regression_table(results: dict[str, dict]) -> str:
         r"\bottomrule",
         r"\end{tabular}%",
         r"}",
-        r"\tabledesc{Each row is the model of the same row in Table~\ref{tab:eavf}, trained to regress the confidence-weighted consensus labels ($[-1, 1]$ scale) instead of the annotators' vote shares.",
-        rf"\emph{{Protocol:}} as in the stream-ablation regression table (\code{{tab:streams\_reg}} in test.tex): {any_run['n']} development clips, video-grouped 5-fold cross-validation with duplicate videos merged, squared error on the consensus labels, identical training settings for every row; predictions are averaged over 5 seeds. Rows without E are the runs of the stream-ablation regression table (\code{{tab:streams\_reg}} in test.tex).",
+        r"\tabledesc{Each row is the model of the same row in Table~\ref{tab:eavf}, trained to regress the final annotation's score ($[-1, 1]$ scale) instead of classifying its sign.",
+        rf"\emph{{Protocol:}} as in the stream-ablation regression table (\code{{tab:streams\_reg}} in test.tex): {any_run['n']} development clips, video-grouped 5-fold cross-validation with duplicate videos merged, squared error on the final annotation, identical training settings for every row; predictions are averaged over 5 seeds. Rows without E are the runs of the stream-ablation regression table (\code{{tab:streams\_reg}} in test.tex).",
         r"\emph{Offsets:} rows with A start from the training folds' median label per indicator combination (the lookup) and learn a correction; rows without A start from the training folds' overall median, so no annotation information reaches them.",
         r"\emph{Metrics:}",
         r"\begin{itemize}",
         r"  \item Spearman is the rank correlation between prediction and label; CCC is the concordance correlation coefficient, which also penalises bias and a compressed scale (0 for a constant prediction).",
         r"  \item MAE is the mean absolute error on the $[-1, 1]$ scale.",
-        r"  \item AP is the average precision with which the prediction ranks the clips with a positive consensus label (positive valence; high arousal) above the rest; mAP is its mean over valence and arousal.",
+        r"  \item AP is the average precision with which the prediction ranks the clips with a positive final annotation (positive valence; high arousal) above the rest; mAP is its mean over valence and arousal.",
         r"  \item MCC is the Matthews correlation coefficient between the signs of the prediction and of the label ($>0$ vs $\le 0$); it is 0 when every prediction falls on one side of 0, as it does for most valence rows (80\% of the labels are positive).",
         r"\end{itemize}",
         r"\emph{References:} the training folds' overall median and the lookup are non-learned. The overall median is constant within a fold, so its Spearman and AP reflect only the differences between folds' medians. Bold marks the best model in each column.}",

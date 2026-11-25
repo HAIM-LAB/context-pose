@@ -50,7 +50,11 @@ def test_rejects_test_manifests(make_manifest, tmp_path):
 
 
 def vote_manifests(make_manifest):
-    """Six participants: even ones majority positive/high, odd ones not."""
+    """Six participants: even ones majority positive/high, odd ones not.
+
+    The final annotation is positive/high for the first four, so it disagrees
+    with the vote majority for participants 1 and 3.
+    """
     manifests = []
     for n, split in enumerate(["train"] * 4 + ["val"] * 2):
         high = n % 2 == 0
@@ -59,20 +63,24 @@ def vote_manifests(make_manifest):
             "arousal_votes": "1|1|-1" if high else "-1|-1|1",
         }
         share = np.float32(2 / 3 if high else 1 / 3)
+        final = np.float32(0.4 if n < 4 else -0.4)
         manifests.append(
             make_manifest(
                 split,
                 participant=f"p{n}",
                 recording=f"r{n}",
                 metadata=votes,
-                overrides={"votes": np.array([share, share])},
+                overrides={
+                    "votes": np.array([share, share]),
+                    "target": np.array([final, final]),
+                },
             )
         )
     return manifests
 
 
-@pytest.mark.parametrize("objective", ["regression", "votes"])
-def test_classification_report_scores_annotator_majorities(
+@pytest.mark.parametrize("objective", ["regression", "votes", "final"])
+def test_classification_report_scores_the_final_annotation(
     make_manifest, tmp_path, objective
 ):
     output = tmp_path / "cv"
@@ -84,11 +92,15 @@ def test_classification_report_scores_annotator_majorities(
     )
     report = json.loads((output / "cv_report.json").read_text())
     assert report["objective"] == objective
-    assert ("mean_bce" in report["model"]) == (objective == "votes")
+    assert ("mean_bce" in report["model"]) == (objective != "regression")
+    majority = {}
+    for prediction in report["predictions"]:
+        assert prediction["classes"] == [int(t > 0) for t in prediction["target"]]
+        calls = majority.setdefault(prediction["fold"], prediction["calls"]["majority"])
+        assert prediction["calls"]["majority"] == calls  # one class per fold
     for target in ("valence", "arousal"):
         entry = report["classification"][target]
-        assert entry["n"] == 12 and entry["positives"] == 6
-        assert entry["majority"]["balanced_accuracy"] == 0.5
+        assert entry["n"] == 12 and entry["positives"] == 8  # vote majority: 6
         assert set(entry) >= {"model", "lookup", "annotators"}
         assert 0 <= entry["model"]["auc"] <= 1
 

@@ -123,6 +123,7 @@ class PoseDataset(Dataset):
             *POSE_KEYS,
             *(FACE_KEYS if c.face_dim else ()),
             *(ECLIP_KEYS if c.eclip_dim else ()),
+            *c.stream_keys,
         )
         shapes = {
             c.condition_key: (c.text_dim,),
@@ -132,6 +133,8 @@ class PoseDataset(Dataset):
             shapes.update(dict.fromkeys(FACE_KEYS, (c.steps, c.face_dim + 1)))
         if c.eclip_dim:  # EmotionCLIP embedding plus the child-tracked flag
             shapes.update(dict.fromkeys(ECLIP_KEYS, (c.steps, c.eclip_dim + 1)))
+        # Further streams (`video_features`): features plus the child-tracked flag.
+        shapes.update({key: (c.steps, width) for key, width in c.stream_keys.items()})
         shapes["target"] = (2,)
         if c.objective == "votes":
             shapes["votes"] = (2,)

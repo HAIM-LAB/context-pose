@@ -11,6 +11,7 @@ dependencies = [
     "pillow>=13.0.0",
     "scipy>=1.18.1",
     "torch>=2.15.0",
+    "torchvision>=0.29.2",
     "transformers>=5.22.1",
 ]
 
@@ -22,6 +23,7 @@ dev = [
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu132", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu132", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
 
 [[tool.uv.index]]
 name = "pytorch-cu132"

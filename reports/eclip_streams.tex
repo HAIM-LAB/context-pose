@@ -35,32 +35,32 @@
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{cccclcccccccccc}
 \toprule
- & & & & & \multicolumn{5}{c}{Valence: positive vs not ($n{=}150$)} & \multicolumn{5}{c}{Arousal: high vs low ($n{=}148$)} \\
+ & & & & & \multicolumn{5}{c}{Valence: positive vs not ($n{=}153$)} & \multicolumn{5}{c}{Arousal: high vs low ($n{=}153$)} \\
 \cmidrule(lr){6-10}\cmidrule(lr){11-15}
 E & A & V & F & Model & Acc. & Bal. acc. & F1 & MCC & AUC & Acc. & Bal. acc. & F1 & MCC & AUC \\
 \midrule
 \multicolumn{5}{l}{Annotators (each vs the other two)} & 79\% & 79\% & -- & -- & -- & 81\% & 77\% & -- & -- & -- \\
-\multicolumn{5}{l}{Always majority} & 67\% & 50\% & 0.80 & 0.00 & 0.50 & 78\% & 50\% & 0.00 & 0.00 & 0.50 \\
- & $\checkmark$ & & & Annotation lookup (no network) & 55\% & 53\% & 0.63 & 0.07 & 0.55 & 60\% & 68\% & 0.48 & 0.30 & 0.63 \\
+\multicolumn{5}{l}{Always majority} & 80\% & 50\% & 0.89 & 0.00 & 0.50 & 76\% & 50\% & 0.00 & 0.00 & 0.50 \\
+ & $\checkmark$ & & & Annotation lookup (no network) & 64\% & 65\% & 0.74 & 0.25 & 0.74 & 58\% & 67\% & 0.48 & 0.29 & 0.65 \\
 \midrule
-$\checkmark$ &  &  &  & EmotionCLIP only & 51\% & 48\%\ci{34}{62} & 0.61 & $-$0.05 & 0.48 & \best{78\%} & 67\%\ci{57}{79} & 0.49 & 0.35 & 0.75 \\
- & $\checkmark$ &  &  & Annotation only & 58\% & 55\%\ci{42}{68} & 0.67 & 0.11 & 0.58 & 60\% & 68\%\ci{55}{79} & 0.48 & 0.30 & 0.61 \\
- &  & $\checkmark$ &  & VLM only & 49\% & 48\%\ci{36}{61} & 0.56 & $-$0.03 & 0.53 & 76\% & \best{76\%}\ci{66}{86} & \best{0.58} & \best{0.45} & 0.69 \\
- &  &  & $\checkmark$ & Face only & 60\% & 60\%\ci{46}{72} & 0.67 & 0.18 & 0.73 & 57\% & 65\%\ci{54}{74} & 0.45 & 0.25 & 0.69 \\
+$\checkmark$ &  &  &  & EmotionCLIP only & 63\% & 51\%\ci{37}{67} & 0.76 & 0.01 & 0.50 & 68\% & 59\%\ci{46}{74} & 0.38 & 0.17 & 0.72 \\
+ & $\checkmark$ &  &  & Annotation only & 64\% & 65\%\ci{50}{78} & 0.74 & 0.25 & 0.75 & 61\% & 68\%\ci{56}{79} & 0.49 & 0.30 & 0.63 \\
+ &  & $\checkmark$ &  & VLM only & 73\% & 61\%\ci{50}{72} & 0.82 & 0.21 & 0.64 & 70\% & 69\%\ci{57}{81} & 0.51 & 0.33 & 0.70 \\
+ &  &  & $\checkmark$ & Face only & 54\% & 48\%\ci{37}{60} & 0.67 & $-$0.03 & 0.49 & 61\% & 58\%\ci{45}{70} & 0.39 & 0.14 & 0.57 \\
 \midrule
-$\checkmark$ & $\checkmark$ &  &  & EmotionCLIP + annotation & 57\% & 56\%\ci{43}{69} & 0.64 & 0.12 & 0.59 & 72\% & 59\%\ci{50}{68} & 0.36 & 0.18 & 0.78 \\
-$\checkmark$ &  & $\checkmark$ &  & EmotionCLIP + VLM & 46\% & 45\%\ci{32}{59} & 0.54 & $-$0.09 & 0.48 & 75\% & 66\%\ci{53}{78} & 0.46 & 0.30 & 0.75 \\
-$\checkmark$ &  &  & $\checkmark$ & EmotionCLIP + face & 52\% & 50\%\ci{37}{63} & 0.61 & $-$0.01 & 0.55 & 77\% & 66\%\ci{53}{79} & 0.47 & 0.32 & 0.73 \\
- & $\checkmark$ & $\checkmark$ &  & Annotation + VLM & 63\% & 61\%\ci{50}{70} & 0.71 & 0.21 & 0.60 & 75\% & 69\%\ci{60}{81} & 0.51 & 0.35 & 0.75 \\
- & $\checkmark$ &  & $\checkmark$ & Annotation + face & \best{67\%} & \best{65\%}\ci{53}{75} & \best{0.75} & \best{0.29} & 0.71 & 68\% & 69\%\ci{57}{79} & 0.49 & 0.32 & 0.73 \\
- &  & $\checkmark$ & $\checkmark$ & VLM + face & 62\% & 62\%\ci{49}{74} & 0.68 & 0.24 & \best{0.74} & 70\% & 69\%\ci{56}{79} & 0.49 & 0.32 & 0.72 \\
+$\checkmark$ & $\checkmark$ &  &  & EmotionCLIP + annotation & 65\% & 54\%\ci{40}{71} & 0.77 & 0.07 & 0.68 & 75\% & 65\%\ci{52}{77} & 0.47 & 0.30 & 0.71 \\
+$\checkmark$ &  & $\checkmark$ &  & EmotionCLIP + VLM & 59\% & 44\%\ci{32}{59} & 0.73 & $-$0.10 & 0.48 & 74\% & 63\%\ci{50}{76} & 0.43 & 0.26 & 0.72 \\
+$\checkmark$ &  &  & $\checkmark$ & EmotionCLIP + face & 63\% & 49\%\ci{36}{63} & 0.76 & $-$0.01 & 0.52 & 73\% & 66\%\ci{52}{78} & 0.48 & 0.30 & 0.71 \\
+ & $\checkmark$ & $\checkmark$ &  & Annotation + VLM & 74\% & \best{75\%}\ci{64}{84} & 0.82 & 0.42 & \best{0.78} & \best{78\%} & \best{75\%}\ci{66}{83} & \best{0.60} & \best{0.47} & \best{0.73} \\
+ & $\checkmark$ &  & $\checkmark$ & Annotation + face & 69\% & 69\%\ci{54}{81} & 0.78 & 0.31 & 0.77 & 69\% & 65\%\ci{54}{74} & 0.47 & 0.27 & 0.65 \\
+ &  & $\checkmark$ & $\checkmark$ & VLM + face & 60\% & 43\%\ci{33}{52} & 0.74 & $-$0.14 & 0.46 & 71\% & 62\%\ci{49}{77} & 0.43 & 0.24 & 0.57 \\
 \midrule
-$\checkmark$ & $\checkmark$ & $\checkmark$ &  & EmotionCLIP + annotation + VLM & 56\% & 54\%\ci{41}{67} & 0.65 & 0.07 & 0.58 & 76\% & 64\%\ci{55}{73} & 0.44 & 0.30 & 0.78 \\
-$\checkmark$ & $\checkmark$ &  & $\checkmark$ & EmotionCLIP + annotation + face & 57\% & 56\%\ci{41}{69} & 0.64 & 0.11 & 0.62 & 74\% & 66\%\ci{54}{80} & 0.47 & 0.31 & \best{0.80} \\
-$\checkmark$ &  & $\checkmark$ & $\checkmark$ & EmotionCLIP + VLM + face & 49\% & 49\%\ci{36}{63} & 0.57 & $-$0.02 & 0.55 & 74\% & 63\%\ci{51}{78} & 0.42 & 0.26 & 0.75 \\
- & $\checkmark$ & $\checkmark$ & $\checkmark$ & Annotation + VLM + face & 65\% & 64\%\ci{52}{75} & 0.71 & 0.27 & 0.70 & 73\% & 69\%\ci{56}{79} & 0.50 & 0.33 & 0.75 \\
+$\checkmark$ & $\checkmark$ & $\checkmark$ &  & EmotionCLIP + annotation + VLM & 63\% & 54\%\ci{41}{70} & 0.75 & 0.07 & 0.64 & 75\% & 68\%\ci{56}{80} & 0.51 & 0.34 & 0.72 \\
+$\checkmark$ & $\checkmark$ &  & $\checkmark$ & EmotionCLIP + annotation + face & 61\% & 50\%\ci{37}{67} & 0.73 & 0.00 & 0.66 & 75\% & 65\%\ci{52}{77} & 0.47 & 0.30 & \best{0.73} \\
+$\checkmark$ &  & $\checkmark$ & $\checkmark$ & EmotionCLIP + VLM + face & 66\% & 52\%\ci{39}{68} & 0.78 & 0.04 & 0.52 & 67\% & 57\%\ci{44}{70} & 0.34 & 0.13 & 0.72 \\
+ & $\checkmark$ & $\checkmark$ & $\checkmark$ & Annotation + VLM + face & \best{82\%} & \best{75\%}\ci{61}{85} & \best{0.88} & \best{0.47} & 0.77 & 71\% & 65\%\ci{56}{76} & 0.47 & 0.28 & 0.63 \\
 \midrule
-$\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & All four streams & 50\% & 49\%\ci{37}{61} & 0.58 & $-$0.02 & 0.60 & 74\% & 64\%\ci{52}{76} & 0.43 & 0.26 & 0.79 \\
+$\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & All four streams & 69\% & 63\%\ci{49}{80} & 0.79 & 0.23 & 0.68 & 75\% & 68\%\ci{57}{79} & 0.51 & 0.35 & 0.72 \\
 \bottomrule
 \end{tabular}%
 }
@@ -73,20 +73,20 @@ $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & All four streams & 5
   \item F: frozen FER ViT face embeddings, kept only on steps that pass the frontal, YuNet-detector and brightness quality gate.
 \end{itemize}
 \emph{Offsets:} rows with A start from the event-annotation lookup's log-odds and learn a correction to it; rows without A start from a constant offset fitted on the training folds, so no annotation information reaches them.
-\emph{Protocol:} as in the stream-ablation table (\code{tab:streams} in test.tex): 153 development clips, video-grouped 5-fold cross-validation with duplicate videos merged, votes objective, identical training settings for every row (width 64, dropout 0.3, weight decay 0.05, learning rate $3\times10^{-4}$, up to 60 epochs with patience 10). Rows without E are the runs of the stream-ablation table (\code{tab:streams} in test.tex).
-\emph{Targets:} annotator-majority calls with ties excluded: valence positive vs not positive (150 clips, 100 positive); arousal high vs low (148 clips, 33 high).
+\emph{Protocol:} as in the stream-ablation table (\code{tab:streams} in test.tex): 153 development clips, video-grouped 5-fold cross-validation with duplicate videos merged, cross-entropy against the final annotation's binary classes, identical training settings for every row (width 64, dropout 0.3, weight decay 0.05, learning rate $3\times10^{-4}$, up to 60 epochs with patience 10). Rows without E have the settings of the stream-ablation table (\code{tab:streams} in test.tex).
+\emph{Targets:} the final annotation (the confidence-weighted consensus of the three annotators): valence positive (score $> 0$) vs not positive (153 clips, 122 positive); arousal high (score $> 0$) vs low (153 clips, 36 high). Models are trained and scored on these classes.
 \emph{Metrics:}
 \begin{itemize}
   \item Calls are the majority of the 5 seeds' calls; AUC uses the mean seed score. Decision thresholds are set on each model's own training clips, never on the scored fold.
   \item Balanced accuracy is the mean per-class recall (chance 50\%), with 95\% participant-bootstrap intervals in brackets.
   \item F1 is for the positive class (positive valence; high arousal). MCC is the Matthews correlation coefficient between calls and labels ($-1$ to 1, 0 for chance or a constant call).
 \end{itemize}
-\emph{References:} each annotator against the other two where those agree, always predicting the majority class, and the non-learned lookup (training-fold mean vote share per indicator combination). Bold marks the best model in each column.}
+\emph{References:} each annotator against the other two where those agree (a human-agreement reference; the final annotation includes each annotator's own vote, so scoring an annotator against it would be circular), always predicting the training folds' majority class, and the non-learned lookup (training-fold share of positive clips per indicator combination). Bold marks the best model in each column.}
 \end{table}
 
 \begin{table}[!htbp]
 \centering
-\caption{\textbf{Stream ablation without pose as regression of the consensus valence and arousal labels} (cross-validated, 5 seeds). E = EmotionCLIP, A = event annotation, V = VLM scene description, F = face. Higher Spearman, CCC, AP, MCC and mAP and lower MAE are better.}
+\caption{\textbf{Stream ablation without pose as regression of the final valence and arousal annotation} (cross-validated, 5 seeds). E = EmotionCLIP, A = event annotation, V = VLM scene description, F = face. Higher Spearman, CCC, AP, MCC and mAP and lower MAE are better.}
 \label{tab:eavf_reg}
 \small
 \setlength{\tabcolsep}{3pt}
@@ -121,14 +121,14 @@ $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & All four streams & 0
 \bottomrule
 \end{tabular}%
 }
-\tabledesc{Each row is the model of the same row in Table~\ref{tab:eavf}, trained to regress the confidence-weighted consensus labels ($[-1, 1]$ scale) instead of the annotators' vote shares.
-\emph{Protocol:} as in the stream-ablation regression table (\code{tab:streams\_reg} in test.tex): 153 development clips, video-grouped 5-fold cross-validation with duplicate videos merged, squared error on the consensus labels, identical training settings for every row; predictions are averaged over 5 seeds. Rows without E are the runs of the stream-ablation regression table (\code{tab:streams\_reg} in test.tex).
+\tabledesc{Each row is the model of the same row in Table~\ref{tab:eavf}, trained to regress the final annotation's score ($[-1, 1]$ scale) instead of classifying its sign.
+\emph{Protocol:} as in the stream-ablation regression table (\code{tab:streams\_reg} in test.tex): 153 development clips, video-grouped 5-fold cross-validation with duplicate videos merged, squared error on the final annotation, identical training settings for every row; predictions are averaged over 5 seeds. Rows without E are the runs of the stream-ablation regression table (\code{tab:streams\_reg} in test.tex).
 \emph{Offsets:} rows with A start from the training folds' median label per indicator combination (the lookup) and learn a correction; rows without A start from the training folds' overall median, so no annotation information reaches them.
 \emph{Metrics:}
 \begin{itemize}
   \item Spearman is the rank correlation between prediction and label; CCC is the concordance correlation coefficient, which also penalises bias and a compressed scale (0 for a constant prediction).
   \item MAE is the mean absolute error on the $[-1, 1]$ scale.
-  \item AP is the average precision with which the prediction ranks the clips with a positive consensus label (positive valence; high arousal) above the rest; mAP is its mean over valence and arousal.
+  \item AP is the average precision with which the prediction ranks the clips with a positive final annotation (positive valence; high arousal) above the rest; mAP is its mean over valence and arousal.
   \item MCC is the Matthews correlation coefficient between the signs of the prediction and of the label ($>0$ vs $\le 0$); it is 0 when every prediction falls on one side of 0, as it does for most valence rows (80\% of the labels are positive).
 \end{itemize}
 \emph{References:} the training folds' overall median and the lookup are non-learned. The overall median is constant within a fold, so its Spearman and AP reflect only the differences between folds' medians. Bold marks the best model in each column.}

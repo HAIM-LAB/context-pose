@@ -9,13 +9,13 @@ gives an interval for each difference. Pass only train/val manifests;
 the test set stays untouched. Unrecognised options are forwarded to `train`.
 
 When the manifests carry annotator votes (`prepare`), the report also scores
-two binary calls against the annotators' majority: positive vs not-positive
-valence and high vs low arousal (ties left out). The model's output is the
-score; its decision threshold is chosen per fold on the clips the model was
-fitted and selected on, maximising balanced accuracy. It is compared with
-always predicting the majority class, a lookup of the mean vote share per
-`--baseline-by` value (thresholded the same way), and the annotators
-themselves (each against the other two).
+two binary calls against the final annotation: positive vs not-positive
+valence (final valence > 0) and high vs low arousal (final arousal > 0). The
+model's output is the score; its decision threshold is chosen per fold on the
+clips the model was fitted and selected on, maximising balanced accuracy. It is
+compared with always predicting the majority class, a lookup of the share of
+positive clips per `--baseline-by` value (thresholded the same way), and the
+annotators themselves (each against the other two).
 """
 
 import argparse
@@ -159,7 +159,8 @@ def main(argv: list[str] | None = None) -> None:
             ]
         )  # fmt: skip
         result = predict(directory / "best.pt", directory / "test.csv", device)
-        votes_model = result["config"].objective == "votes"
+        objective = result["config"].objective
+        logits_model = objective != "regression"
         if has_votes:
             fitted = [
                 predict(directory / "best.pt", directory / f"{s}.csv", device, s)
@@ -167,11 +168,13 @@ def main(argv: list[str] | None = None) -> None:
             ]
             calls_fit = annotator_votes.fit_calls(
                 fitted[0]["rows"] + fitted[1]["rows"],
+                np.concatenate([f["target"] for f in fitted]),
                 np.concatenate([f["pred"] for f in fitted]),
                 args.baseline_by,
             )
             made = annotator_votes.make_calls(calls_fit, result["rows"], result["pred"])
-            test_shares, test_classes = annotator_votes.vote_labels(result["rows"])
+            test_shares, _ = annotator_votes.vote_labels(result["rows"])
+            test_classes = annotator_votes.final_classes(result["target"])
         seen_rows, seen = [], []
         for split in ("train", "val"):
             split_rows, split_targets = labelled(
@@ -182,8 +185,10 @@ def main(argv: list[str] | None = None) -> None:
         grouped = training.group_medians(
             seen_rows, np.concatenate(seen), args.baseline_by
         )
-        if votes_model:
+        if objective == "votes":
             metrics = training.vote_metrics(result["pred"], result["votes"])
+        elif objective == "final":
+            metrics = training.vote_metrics(result["pred"], test_classes)
         else:
             metrics = training.regression_metrics(result["pred"], result["target"])
         per_fold.append(
@@ -231,7 +236,7 @@ def main(argv: list[str] | None = None) -> None:
         base = np.array([p["baselines"][name] for p in pooled])
         base_err = np.abs(base - target).mean(1)
         baselines[name] = {"metrics": training.regression_metrics(base, target)}
-        if not votes_model:  # log-odds are not on the label scale
+        if not logits_model:  # log-odds are not on the label scale
             baselines[name]["model_gain"] = float(base_err.mean() - model_err.mean())
             baselines[name]["model_gain_95ci"] = bootstrap_gain(
                 groups, model_err, base_err
@@ -243,14 +248,15 @@ def main(argv: list[str] | None = None) -> None:
             "n": int(mask.sum()),
             "model_mean_mae": float(model_err[mask].mean()),
         }
+    labels = "votes" if objective == "votes" else "classes"  # logit objectives
     report = {
         "folds": args.folds,
         "fold_seed": args.fold_seed,
         "train_args": train_args,
-        "objective": "votes" if votes_model else "regression",
+        "objective": objective,
         "model": (
-            training.vote_metrics(pred, np.array([p["votes"] for p in pooled]))
-            if votes_model
+            training.vote_metrics(pred, np.array([p[labels] for p in pooled]))
+            if logits_model
             else training.regression_metrics(pred, target)
         ),
         "baselines": baselines,
@@ -264,7 +270,7 @@ def main(argv: list[str] | None = None) -> None:
     (args.output / "cv_report.json").write_text(
         json.dumps(report, indent=2, allow_nan=False) + "\n"
     )
-    if votes_model:
+    if logits_model:
         print(f"model mean cross-entropy {report['model']['mean_bce']:.4f}")
     else:
         print(f"model mean MAE {report['model']['mean_mae']:.4f}")

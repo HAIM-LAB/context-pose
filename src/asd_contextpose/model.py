@@ -7,10 +7,17 @@ optional face stream (`face_dim > 0`) pools frozen per-step face features over
 each region and adds its own correction, to valence only by default.
 
 The per-step subject features are the pose (`subject="pose"`), frozen
-EmotionCLIP frame embeddings (`"eclip"`) or both (`"both"`). With both, `fusion`
-either projects each to half the width and concatenates them before one
-temporal encoder (`"concat"`), or encodes each separately and lets the context
-query attend over both token sequences (`"separate"`).
+EmotionCLIP frame embeddings (`"eclip"`), both (`"both"`) or neither (`"none"`).
+With both, `fusion` either projects each to half the width and concatenates
+them before one temporal encoder (`"concat"`), or encodes each separately and
+lets the context query attend over both token sequences (`"separate"`).
+
+Further per-step feature streams (`streams`, e.g. Video Swin or HOG-HOF
+features from `video_features`) each get their own temporal encoder and
+modality embedding, and their tokens join the sequence the query attends over.
+A stream named `vst` enters as `pre_vst`/`event_vst`/`post_vst` [B, steps,
+dim + 1]: the features, then a 0/1 child-tracked flag, all used as features.
+`stream_dropout` hides each stream of a training sample with that chance.
 """
 
 from dataclasses import dataclass
@@ -37,11 +44,14 @@ FACE_HIDDEN = 32
 FACE_TARGETS = ("valence", "both")
 FACE_KEYS = ("pre_face", "event_face", "post_face")
 ECLIP_KEYS = ("pre_eclip", "event_eclip", "post_eclip")
-SUBJECTS = ("pose", "eclip", "both")
+SUBJECTS = ("pose", "eclip", "both", "none")
+REGIONS = ("pre", "event", "post")
+RESERVED_STREAMS = ("pose", "face", "eclip")  # their keys are taken
 FUSIONS = ("concat", "separate")
 # "regression": outputs are [valence, arousal] on the label scale. "votes": the
 # same outputs are log-odds of an annotator voting positive valence / high arousal.
-OBJECTIVES = ("regression", "votes")
+# "final": log-odds that the final annotation is positive valence / high arousal.
+OBJECTIVES = ("regression", "votes", "final")
 
 
 @dataclass(frozen=True)
@@ -64,8 +74,28 @@ class ModelConfig:
     subject: str = "pose"  # per-step subject features: pose, EmotionCLIP or both
     eclip_dim: int = 0  # EmotionCLIP embedding width (plus a tracked-flag column)
     fusion: str = "concat"  # how subject="both" combines the two
+    streams: tuple[tuple[str, int], ...] = ()  # further (name, width) streams
+    stream_dropout: float = 0.0  # training-time chance of hiding a sample's stream
 
     def __post_init__(self) -> None:
+        # Checkpoints and JSON may hand back lists; keep the config hashable.
+        streams = tuple(tuple(stream) for stream in self.streams)
+        object.__setattr__(self, "streams", streams)
+        for stream in streams:
+            if (
+                len(stream) != 2
+                or type(stream[0]) is not str
+                or not stream[0].isidentifier()
+                or stream[0] in RESERVED_STREAMS
+                or type(stream[1]) is not int
+                or stream[1] < 1
+            ):
+                raise ValueError(
+                    "streams must be (name, width) pairs with an identifier name "
+                    f"other than {RESERVED_STREAMS} and a positive width"
+                )
+        if len({name for name, _ in streams}) != len(streams):
+            raise ValueError("stream names must be distinct")
         for name in ("text_dim", "num_joints", "joint_features", "steps", "width"):
             value = getattr(self, name)
             if type(value) is not int or value < 1:
@@ -80,7 +110,7 @@ class ModelConfig:
             raise ValueError(f"objective must be one of {OBJECTIVES}")
         if self.inputs == "face" and not self.face_dim:
             raise ValueError("inputs='face' requires face_dim > 0")
-        for name in ("dropout", "head_dropout", "face_dropout"):
+        for name in ("dropout", "head_dropout", "face_dropout", "stream_dropout"):
             if not 0 <= getattr(self, name) < 1:
                 raise ValueError(f"{name} must be in [0, 1)")
         if self.inputs not in INPUTS:
@@ -95,11 +125,13 @@ class ModelConfig:
             raise ValueError(f"fusion must be one of {FUSIONS}")
         if type(self.eclip_dim) is not int or self.eclip_dim < 0:
             raise ValueError("eclip_dim must be a non-negative integer")
-        if (self.subject == "pose") != (self.eclip_dim == 0):
+        if (self.subject in ("eclip", "both")) != (self.eclip_dim > 0):
             raise ValueError(
                 "eclip_dim > 0 is required exactly when subject uses eclip"
             )
-        if self.subject != "pose" and self.model.endswith(RECURRENT):
+        if self.subject == "none" and not self.streams:
+            raise ValueError("subject='none' requires at least one stream")
+        if (self.subject != "pose" or self.streams) and self.model.endswith(RECURRENT):
             raise ValueError("recurrent baselines take pose subjects only")
         if self.condition_key == "context" and self.text_dim != CONTEXT_DIM:
             raise ValueError(f"annotation models take {CONTEXT_DIM} context features")
@@ -109,6 +141,15 @@ class ModelConfig:
         """Sample key of the conditioning vector."""
         return "text_embedding" if self.model.startswith("text_") else "context"
 
+    @property
+    def stream_keys(self) -> dict[str, int]:
+        """Sample key (e.g. `event_vst`) -> per-step width, flag column included."""
+        return {
+            f"{region}_{name}": dim + 1
+            for name, dim in self.streams
+            for region in REGIONS
+        }
+
 
 def check_inputs(
     c: ModelConfig,
@@ -117,6 +158,7 @@ def check_inputs(
     poses: tuple[Tensor, Tensor, Tensor],
     faces: tuple[Tensor | None, Tensor | None, Tensor | None],
     eclips: tuple[Tensor | None, Tensor | None, Tensor | None] = (None,) * 3,
+    streams: dict[str, Tensor] | None = None,
 ) -> None:
     """Raise ValueError unless the inputs match the config (shape, dtype, device)."""
     key = c.condition_key
@@ -159,6 +201,20 @@ def check_inputs(
                 raise ValueError(f"{name} must be finite float32")
     elif any(tensor is not None for tensor in eclips):
         raise ValueError("eclip inputs need a model with eclip_dim > 0")
+    streams = streams or {}
+    if set(streams) != set(c.stream_keys):
+        raise ValueError(
+            f"stream inputs must be exactly {sorted(c.stream_keys)}, "
+            f"got {sorted(streams)}"
+        )
+    for name, width in c.stream_keys.items():
+        tensor = streams[name]
+        if tuple(tensor.shape) != (batch, c.steps, width):
+            raise ValueError(f"{name} must have shape {(batch, c.steps, width)}")
+        if tensor.dtype != torch.float32 or not torch.isfinite(tensor).all():
+            raise ValueError(f"{name} must be finite float32")
+        if tensor.device != device:
+            raise ValueError(f"{name} must be on the model device")
 
 
 def temporal_encoder(channels: int, width: int) -> nn.Sequential:
@@ -187,14 +243,25 @@ class ContextPose(nn.Module):
             )
             self.subject_encoder = temporal_encoder(width, width)
         else:
-            if config.subject != "eclip":
+            if config.subject in ("pose", "both"):
                 self.pose_encoder = temporal_encoder(pose_dim, width)
-            if config.subject != "pose":
+            if config.subject in ("eclip", "both"):
                 self.eclip_norm = nn.LayerNorm(eclip_dim)
                 self.eclip_encoder = temporal_encoder(eclip_dim, width)
             if config.subject == "both":
                 self.modality_embeddings = nn.Parameter(torch.empty(2, width))
                 nn.init.normal_(self.modality_embeddings, std=0.02)
+        if config.streams:
+            self.stream_norms = nn.ModuleList(
+                nn.LayerNorm(dim + 1) for _, dim in config.streams
+            )
+            self.stream_encoders = nn.ModuleList(
+                temporal_encoder(dim + 1, width) for _, dim in config.streams
+            )
+            self.stream_embeddings = nn.Parameter(
+                torch.empty(len(config.streams), width)
+            )
+            nn.init.normal_(self.stream_embeddings, std=0.02)
         self.text_projection = nn.Linear(config.text_dim, width)
         self.region_embeddings = nn.Parameter(torch.empty(3, width))
         nn.init.normal_(self.region_embeddings, std=0.02)
@@ -250,13 +317,14 @@ class ContextPose(nn.Module):
         pre_eclip: Tensor | None = None,
         event_eclip: Tensor | None = None,
         post_eclip: Tensor | None = None,
+        **streams: Tensor,
     ) -> Tensor:
         """Return unconstrained [valence, arousal] predictions, shape [B, 2].
 
         Face tensors are [B, steps, face_dim + 1]: features, then a 0/1 mask of
-        the steps whose face passed the quality gate. EmotionCLIP tensors are
-        [B, steps, eclip_dim + 1]: the embedding, then a 0/1 child-tracked flag,
-        all used as features.
+        the steps whose face passed the quality gate. EmotionCLIP and stream
+        tensors (`streams`, keyed like `event_vst`) are [B, steps, dim + 1]:
+        the features, then a 0/1 child-tracked flag, all used as features.
         """
         c = self.config
         faces = (pre_face, event_face, post_face)
@@ -268,7 +336,9 @@ class ContextPose(nn.Module):
             (pre_pose, event_pose, post_pose),
             faces,
             eclips,
+            streams,
         )
+        extras = self._streams(streams)
         batch = text_embedding.shape[0]
         condition = text_embedding
         face = self._face(faces) if c.face_dim else 0.0
@@ -285,7 +355,7 @@ class ContextPose(nn.Module):
             gamma, beta = self.film(context).unsqueeze(1).chunk(2, dim=-1)
         regions = []
         for region, pose in enumerate((pre_pose, event_pose, post_pose)):
-            tokens = self._tokens(pose.flatten(2), eclips[region])
+            tokens = self._tokens(pose.flatten(2), eclips[region], extras[region])
             if film:
                 # Context modulates the pose features; the region embedding alone
                 # queries them, so the context reaches the output only via FiLM.
@@ -300,25 +370,45 @@ class ContextPose(nn.Module):
             fused = fused + text
         return self.head(self.dropout(fused)) + face
 
-    def _tokens(self, pose: Tensor, eclip: Tensor | None) -> Tensor:
-        """[B, steps or 2 * steps, width] subject tokens from [B, steps, J * F] pose."""
+    def _streams(self, streams: dict[str, Tensor]) -> list[list[Tensor]]:
+        """Per region, the stream tensors in config order, hidden by stream dropout."""
+        c = self.config
+        names = [name for name, _ in c.streams]
+        extras = [[streams[f"{r}_{name}"] for name in names] for r in REGIONS]
+        if self.training and c.stream_dropout and names:
+            batch = extras[0][0].shape[0]
+            device = extras[0][0].device
+            keep = torch.rand(batch, len(names), device=device) >= c.stream_dropout
+            keep = keep.float()[:, :, None, None]
+            extras = [[x * keep[:, i] for i, x in enumerate(r)] for r in extras]
+        return extras
+
+    def _tokens(self, pose: Tensor, eclip: Tensor | None, extras: list[Tensor]):
+        """[B, n * steps, width] tokens: subject features, then each stream."""
         c = self.config
 
         def encode(encoder: nn.Module, x: Tensor) -> Tensor:
             return encoder(x.transpose(1, 2)).transpose(1, 2)
 
         if c.subject == "pose":
-            return encode(self.pose_encoder, pose)
-        if c.subject == "eclip":
-            return encode(self.eclip_encoder, self.eclip_norm(eclip))
-        if c.fusion == "concat":
+            parts = [encode(self.pose_encoder, pose)]
+        elif c.subject == "eclip":
+            parts = [encode(self.eclip_encoder, self.eclip_norm(eclip))]
+        elif c.subject == "none":
+            parts = []
+        elif c.fusion == "concat":
             steps = torch.cat(
                 [self.pose_projection(pose), self.eclip_projection(eclip)], -1
             )
-            return encode(self.subject_encoder, steps)
-        pose_tokens = encode(self.pose_encoder, pose) + self.modality_embeddings[0]
-        eclip_tokens = encode(self.eclip_encoder, self.eclip_norm(eclip))
-        return torch.cat([pose_tokens, eclip_tokens + self.modality_embeddings[1]], 1)
+            parts = [encode(self.subject_encoder, steps)]
+        else:
+            pose_tokens = encode(self.pose_encoder, pose) + self.modality_embeddings[0]
+            eclip_tokens = encode(self.eclip_encoder, self.eclip_norm(eclip))
+            parts = [pose_tokens, eclip_tokens + self.modality_embeddings[1]]
+        for index, x in enumerate(extras):
+            tokens = encode(self.stream_encoders[index], self.stream_norms[index](x))
+            parts.append(tokens + self.stream_embeddings[index])
+        return parts[0] if len(parts) == 1 else torch.cat(parts, 1)
 
     def _face(self, faces: tuple[Tensor, ...]) -> Tensor:
         """[B, 2] correction from the masked mean face features of each region."""
@@ -355,6 +445,7 @@ class AnnotationContextPose(ContextPose):
         pre_eclip: Tensor | None = None,
         event_eclip: Tensor | None = None,
         post_eclip: Tensor | None = None,
+        **streams: Tensor,
     ) -> Tensor:
         return super().forward(
             context,
@@ -367,6 +458,7 @@ class AnnotationContextPose(ContextPose):
             pre_eclip,
             event_eclip,
             post_eclip,
+            **streams,
         )
 
 

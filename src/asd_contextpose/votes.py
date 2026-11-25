@@ -1,16 +1,17 @@
-"""Annotator votes: soft targets, majority classes and the human ceiling.
+"""Binary calls against the final annotation, annotator votes and the human ceiling.
 
 Each clip was rated by three blind annotators. Valence votes are positive /
 neutral / negative and arousal votes are high / low only; "unknown" votes are
-missing. The consensus labels average the votes weighted by confidence, which
-splits identical vote patterns across class boundaries, so the classification
-targets here come from the votes themselves:
+missing. The final annotation (Final_Annotation_v2.xlsx, the `target` of every
+sample) averages the votes weighted by confidence on [-1, 1]. The binary calls
+are always scored against it:
 
-- valence: positive vs not positive (neutral or negative)
-- arousal: high vs low
+- valence: positive (final valence > 0) vs not positive
+- arousal: high (final arousal > 0) vs low
 
-The soft target is the share of known votes for the positive/high class (each
-annotator counts once); the class is the annotators' majority, or None on a tie.
+The vote share (share of known votes for the positive/high class, each
+annotator counting once) is only the training target of the `votes` objective.
+The human ceiling scores each annotator against the majority of the other two.
 """
 
 from collections import defaultdict
@@ -117,6 +118,11 @@ def auc(scores: np.ndarray, labels: np.ndarray) -> float | None:
     return float(rank_sum / (positives * negatives))
 
 
+def final_classes(targets: np.ndarray) -> np.ndarray:
+    """[N, 2] classes from the final annotation: 1 if valence / arousal > 0."""
+    return (np.asarray(targets) > 0).astype(int)
+
+
 def vote_labels(rows: list[dict]) -> tuple[np.ndarray, np.ndarray]:
     """[N, 2] vote shares and majority classes (-1 = tie) from manifest votes."""
     shares, classes = [], []
@@ -140,7 +146,7 @@ def best_threshold(scores: np.ndarray, labels: np.ndarray) -> float:
 
 
 def share_lookup(rows: list[dict], shares: np.ndarray, column: str) -> dict:
-    """Mean vote share per value of `column` (groups under 3 use the overall)."""
+    """Mean share per value of `column` (groups under 3 use the overall)."""
     groups = defaultdict(list)
     for row, share in zip(rows, shares):
         groups[row.get(column, "")].append(share)
@@ -173,7 +179,7 @@ def bootstrap_interval(groups, statistic, draws=2000, seed=0) -> list[float] | N
 
 
 def classification_report(pooled: list[dict], all_rows: list[dict]) -> dict:
-    """Binary calls vs the annotators' majority: model, lookup, majority, people."""
+    """Binary calls vs the final annotation: model, lookup, majority, people."""
     groups = np.array([p["participant_id"] for p in pooled])
     report = {}
     for index, target in enumerate(TARGETS):
@@ -233,23 +239,25 @@ def lookup_scores(table: dict, rows: list[dict]) -> np.ndarray:
     )
 
 
-def fit_calls(rows: list[dict], scores: np.ndarray, column: str) -> dict:
+def fit_calls(
+    rows: list[dict], targets: np.ndarray, scores: np.ndarray, column: str
+) -> dict:
     """Decision rules for the binary calls, fitted on the clips a model saw.
 
-    Thresholds maximise balanced accuracy for the model's scores and for a
-    lookup of the mean vote share per `column` value; the majority class is
-    the fallback. Plain lists, so it can be stored in a checkpoint.
+    Thresholds maximise balanced accuracy against the final annotation's
+    classes, for the model's scores and for a lookup of the share of positive
+    clips per `column` value; the majority class is the fallback. Plain lists,
+    so it can be stored in a checkpoint.
     """
-    shares, classes = vote_labels(rows)
-    table = share_lookup(rows, shares, column)
+    classes = final_classes(targets)
+    table = share_lookup(rows, classes.astype(np.float64), column)
     lookup = lookup_scores(table, rows)
     fit = {"lookup": table, "model_thresholds": [], "lookup_thresholds": []}
     fit["majority"] = []
     for index in range(len(TARGETS)):
-        decided = classes[:, index] >= 0
-        labels = classes[decided, index]
-        fit["model_thresholds"].append(best_threshold(scores[decided, index], labels))
-        fit["lookup_thresholds"].append(best_threshold(lookup[decided, index], labels))
+        labels = classes[:, index]
+        fit["model_thresholds"].append(best_threshold(scores[:, index], labels))
+        fit["lookup_thresholds"].append(best_threshold(lookup[:, index], labels))
         fit["majority"].append(int(labels.mean() > 0.5))
     return fit
 
@@ -268,7 +276,7 @@ def make_calls(fit: dict, rows: list[dict], scores: np.ndarray) -> dict:
 
 
 def ensemble_report(
-    rows: list[dict], preds: list[np.ndarray], fits: list[dict]
+    rows: list[dict], targets: np.ndarray, preds: list[np.ndarray], fits: list[dict]
 ) -> dict:
     """`classification_report` for one model or an ensemble on labelled clips.
 
@@ -279,7 +287,7 @@ def ensemble_report(
     made = [make_calls(fit, rows, pred) for fit, pred in zip(fits, preds)]
     calls = (np.mean([m["calls"]["model"] for m in made], 0) > 0.5).astype(int)
     scores = np.mean(preds, 0)
-    _, classes = vote_labels(rows)
+    classes = final_classes(targets)
     entries = [
         {
             "participant_id": row["participant_id"],

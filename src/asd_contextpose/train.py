@@ -38,6 +38,14 @@ _FACE_PAIRS = [(i, 16 - i) for i in range(8)] + [
 FACE_MIRROR = {**dict(_FACE_PAIRS), **{b: a for a, b in _FACE_PAIRS}}
 
 
+def stream_arg(value: str) -> tuple[str, int]:
+    """`--stream NAME:DIM` as a (name, width) pair."""
+    name, _, dim = value.partition(":")
+    if not name or not dim.isdigit():
+        raise argparse.ArgumentTypeError("expected NAME:DIM, e.g. vst:1024")
+    return name, int(dim)
+
+
 def group_medians(rows: list[dict], targets: np.ndarray, column: str) -> dict:
     """Median target per value of a manifest column (groups under 3 use the overall)."""
     groups = defaultdict(list)
@@ -171,7 +179,7 @@ def regression_metrics(pred: np.ndarray, target: np.ndarray) -> dict:
 
 
 def vote_metrics(logits: np.ndarray, votes: np.ndarray) -> dict:
-    """Cross-entropy against vote shares; AUC for the annotators' majority class.
+    """Cross-entropy against vote shares or 0/1 labels; AUC for the class above 0.5.
 
     Ties (a vote share of exactly 0.5) have no majority and are left out of AUC.
     """
@@ -193,8 +201,8 @@ def vote_metrics(logits: np.ndarray, votes: np.ndarray) -> dict:
 def predict(model: ContextPose, loader: DataLoader, device: torch.device) -> dict:
     """Model output plus any residual offset, with labels and participants.
 
-    `pred` is on the label scale for regression and log-odds for `votes`;
-    `votes` (vote shares) is None unless the dataset provides them.
+    `pred` is on the label scale for regression and log-odds for `votes` and
+    `final`; `votes` (vote shares) is None unless the dataset provides them.
     """
     model.eval()
     predictions, targets, votes, participants = [], [], [], []
@@ -226,6 +234,8 @@ def score_predictions(out: dict, objective: str) -> dict:
     pred, ids = out["pred"], np.asarray(out["participants"])
     if objective == "votes":
         reference, metrics = out["votes"], vote_metrics
+    elif objective == "final":
+        reference, metrics = annotator_votes.final_classes(out["target"]), vote_metrics
     else:
         reference, metrics = out["target"], regression_metrics
     return {
@@ -282,7 +292,8 @@ def main(argv: list[str] | None = None) -> None:
         "--objective",
         choices=OBJECTIVES,
         default="regression",
-        help="votes: log-odds of positive valence / high arousal votes (cross-entropy)",
+        help="votes: log-odds of positive valence / high arousal votes; final: "
+        "log-odds that the final annotation is positive / high (cross-entropy)",
     )
     parser.add_argument("--width", type=int, default=128)
     parser.add_argument("--dropout", type=float, default=0.1)
@@ -306,7 +317,23 @@ def main(argv: list[str] | None = None) -> None:
         "--subject",
         choices=SUBJECTS,
         default="pose",
-        help="per-step subject features: pose, EmotionCLIP (*_eclip NPZ keys) or both",
+        help="per-step subject features: pose, EmotionCLIP (*_eclip NPZ keys), both, "
+        "or none (only --stream inputs)",
+    )
+    parser.add_argument(
+        "--stream",
+        action="append",
+        default=[],
+        type=stream_arg,
+        metavar="NAME:DIM",
+        help="a further per-step stream (*_NAME NPZ keys of width DIM + 1, e.g. "
+        "vst:1024 or hoghof:274 from add_streams); repeatable",
+    )
+    parser.add_argument(
+        "--stream-dropout",
+        type=float,
+        default=0.0,
+        help="chance of hiding each --stream of a training sample",
     )
     parser.add_argument(
         "--eclip-dim",
@@ -376,7 +403,7 @@ def main(argv: list[str] | None = None) -> None:
         report = score_predictions(ensemble, objectives.pop())
         if annotator_votes.has_votes(test.rows) and all(fits):
             report["classification"] = annotator_votes.ensemble_report(
-                test.rows, [o["pred"] for o in outputs], fits
+                test.rows, ensemble["target"], [o["pred"] for o in outputs], fits
             )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
@@ -413,6 +440,8 @@ def main(argv: list[str] | None = None) -> None:
         subject=args.subject,
         eclip_dim=args.eclip_dim,
         fusion=args.fusion,
+        streams=tuple(args.stream),
+        stream_dropout=args.stream_dropout,
     )
     train = PoseDataset(args.train_manifest, config, "train")
     val = PoseDataset(args.val_manifest, config, "val")
@@ -428,7 +457,9 @@ def main(argv: list[str] | None = None) -> None:
     if args.residual_by:
         key = "votes" if args.objective == "votes" else "target"
         targets = np.stack([train[i][key].numpy() for i in range(len(train))])
-        group = group_logits if args.objective == "votes" else group_medians
+        if args.objective == "final":
+            targets = annotator_votes.final_classes(targets).astype(np.float64)
+        group = group_medians if args.objective == "regression" else group_logits
         residual = group(train.rows, targets, args.residual_by)
     mirror = mirror_index(train.joint_order) if args.augment else None
     augmenter = torch.Generator().manual_seed(args.seed + 1)
@@ -456,9 +487,14 @@ def main(argv: list[str] | None = None) -> None:
                 inputs = augment(inputs, mirror, augmenter)
             pred = model(**{key: value.to(device) for key, value in inputs.items()})
             pred = pred + batch["offset"].to(device)
-            if args.objective == "votes":
+            if args.objective != "regression":
+                labels = (
+                    batch["votes"]
+                    if args.objective == "votes"
+                    else (batch["target"] > 0).float()
+                )
                 loss = torch.nn.functional.binary_cross_entropy_with_logits(
-                    pred, batch["votes"].to(device), reduction="none"
+                    pred, labels.to(device), reduction="none"
                 )
             else:
                 error = pred - batch["target"].to(device)
@@ -514,6 +550,7 @@ def main(argv: list[str] | None = None) -> None:
         ]
         checkpoint["classification"] = annotator_votes.fit_calls(
             train.rows + val.rows,
+            np.concatenate([out["target"] for out in seen]),
             np.concatenate([out["pred"] for out in seen]),
             args.residual_by or "event_text",
         )
@@ -532,7 +569,7 @@ def main(argv: list[str] | None = None) -> None:
         report["test"] = score_predictions(out, config.objective)
         if "classification" in checkpoint and annotator_votes.has_votes(test.rows):
             report["test"]["classification"] = annotator_votes.ensemble_report(
-                test.rows, [out["pred"]], [checkpoint["classification"]]
+                test.rows, out["target"], [out["pred"]], [checkpoint["classification"]]
             )
     args.output.with_suffix(".metrics.json").write_text(
         json.dumps(report, indent=2, allow_nan=False) + "\n"

@@ -222,6 +222,115 @@ def test_eclip_subjects_forward_backward_and_use_their_inputs(subject, fusion):
     assert annotation(torch.zeros(2, 4), *values[1:], **extra).shape == (2, 2)
 
 
+def streams(config, batch=2):
+    """Stream tensors [B, steps, dim + 1] keyed like `event_vst`."""
+    return {
+        key: torch.randn(batch, config.steps, width)
+        for key, width in config.stream_keys.items()
+    }
+
+
+@pytest.mark.parametrize("subject", ["pose", "eclip", "both", "none"])
+def test_streams_forward_backward_and_use_their_inputs(subject):
+    config = ModelConfig(
+        8,
+        3,
+        3,
+        dropout=0.0,
+        subject=subject,
+        eclip_dim=6 if subject in ("eclip", "both") else 0,
+        fusion="separate",
+        streams=(("vst", 5), ("hoghof", 4)),
+    )
+    model = ContextPose(config).eval()
+    values = inputs(config)
+    extra = {**(eclips(config) if config.eclip_dim else {}), **streams(config)}
+    pred = model(*values, **extra)
+    assert pred.shape == (2, 2)
+    pred.sum().backward()
+    for index in range(2):
+        assert model.stream_encoders[index][0].weight.grad.abs().sum() > 0
+    assert (model.stream_embeddings.grad.abs().sum(1) > 0).all()
+    for name in ("vst", "hoghof"):
+        changed = {
+            k: torch.randn_like(v) if k.endswith(name) else v for k, v in extra.items()
+        }
+        assert not torch.allclose(pred, model(*values, **changed))
+    moved = [values[0], *(torch.randn_like(v) for v in values[1:])]
+    uses_pose = not torch.allclose(pred, model(*moved, **extra))
+    assert uses_pose == (subject in ("pose", "both"))
+    annotation = build_model(
+        ModelConfig(
+            4,
+            3,
+            3,
+            model="annotation_attention",
+            subject=subject,
+            eclip_dim=config.eclip_dim,
+            streams=config.streams,
+        )
+    )
+    assert annotation(torch.zeros(2, 4), *values[1:], **extra).shape == (2, 2)
+
+
+def test_stream_dropout_hides_whole_streams_in_training_only():
+    config = ModelConfig(
+        8, 3, 3, dropout=0.0, subject="none", streams=(("vst", 5),), stream_dropout=0.5
+    )
+    model = ContextPose(config)
+    values, extra = inputs(config, batch=64), streams(config, batch=64)
+    torch.manual_seed(0)
+    hidden = model.train()(
+        *values, **{k: torch.zeros_like(v) for k, v in extra.items()}
+    )
+    torch.manual_seed(0)
+    pred = model(*values, **extra)
+    dropped = torch.isclose(pred, hidden).all(1)
+    assert 0 < dropped.sum() < 64  # hidden samples match an all-zero stream
+    model.eval()
+    assert torch.allclose(model(*values, **extra), model(*values, **extra))
+    assert not torch.isclose(model(*values, **extra), hidden).all(1).any()
+
+
+def test_streams_keep_existing_models_unchanged():
+    """No streams: the same parameters, so seeded runs and checkpoints still match."""
+    base = ModelConfig(8, 3, 3, subject="both", eclip_dim=6, fusion="separate")
+    torch.manual_seed(0)
+    old = ContextPose(base)
+    torch.manual_seed(0)
+    new = ContextPose(ModelConfig(**{**base.__dict__, "streams": ()}))
+    assert old.state_dict().keys() == new.state_dict().keys()
+    for key, value in old.state_dict().items():
+        assert torch.equal(value, new.state_dict()[key])
+    assert not any(k.startswith("stream") for k in old.state_dict())
+
+
+def test_stream_validation():
+    with pytest.raises(ValueError, match="requires at least one stream"):
+        ModelConfig(8, 3, 3, subject="none")
+    with pytest.raises(ValueError, match="eclip_dim > 0"):
+        ModelConfig(8, 3, 3, subject="none", eclip_dim=6, streams=(("vst", 5),))
+    for bad in ((("eclip", 5),), (("vst", 0),), (("v st", 5),), (("vst", 5.0),)):
+        with pytest.raises(ValueError, match="streams must be"):
+            ModelConfig(8, 3, 3, streams=bad)
+    with pytest.raises(ValueError, match="distinct"):
+        ModelConfig(8, 3, 3, streams=(("vst", 5), ("vst", 4)))
+    with pytest.raises(ValueError, match="stream_dropout"):
+        ModelConfig(8, 3, 3, streams=(("vst", 5),), stream_dropout=1.0)
+    with pytest.raises(ValueError, match="pose subjects only"):
+        ModelConfig(8, 3, 3, model="text_gru", streams=(("vst", 5),))
+    listed = ModelConfig(8, 3, 3, streams=[["vst", 5]])  # as a checkpoint may hold
+    assert listed.streams == (("vst", 5),) and hash(listed)
+    config = ModelConfig(8, 3, 3, streams=(("vst", 5),))
+    with pytest.raises(ValueError, match="stream inputs must be exactly"):
+        ContextPose(config)(*inputs(config))
+    with pytest.raises(ValueError, match="stream inputs must be exactly"):
+        ContextPose(ModelConfig(8, 3, 3))(*inputs(config), **streams(config))
+    wrong = {k: v[..., :-1] for k, v in streams(config).items()}
+    with pytest.raises(ValueError, match="pre_vst must have shape"):
+        ContextPose(config)(*inputs(config), **wrong)
+
+
 def test_eclip_validation():
     with pytest.raises(ValueError, match="eclip_dim > 0"):
         ModelConfig(8, 3, 3, subject="both")

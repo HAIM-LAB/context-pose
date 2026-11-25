@@ -276,6 +276,31 @@ def test_votes_objective_trains_on_vote_shares(make_manifest, tmp_path):
     assert "mean_bce" in report["validation"]["aggregate"]
 
 
+def test_final_objective_trains_on_the_final_annotation_sign(make_manifest, tmp_path):
+    # Vote shares say the opposite; the final objective must ignore them.
+    arrays = {
+        "target": np.array([0.2, -0.5], np.float32),
+        "votes": np.array([0.0, 1.0], np.float32),
+    }
+    train, val = (
+        make_manifest(split, count=3, overrides=arrays, metadata={"group": "g"})
+        for split in ("train", "val")
+    )
+    output = tmp_path / "best.pt"
+    main(
+        ["--train-manifest", str(train), "--val-manifest", str(val)]
+        + ["--text-dim", "8", "--num-joints", "3", "--joint-features", "3"]
+        + ["--objective", "final", "--residual-by", "group", "--epochs", "2"]
+        + ["--output", str(output)]
+    )
+    checkpoint = torch.load(output, weights_only=True)
+    assert checkpoint["config"]["objective"] == "final"
+    clipped = np.log(0.98 / 0.02)  # all positive valence, all low arousal
+    assert checkpoint["residual"]["groups"]["g"] == pytest.approx([clipped, -clipped])
+    validation = json.loads(output.with_suffix(".metrics.json").read_text())
+    assert validation["validation"]["aggregate"]["valence"]["auc"] is None  # one class
+
+
 def test_checkpoints_store_call_rules_and_ensembles_evaluate(make_manifest, tmp_path):
     meta = {"valence_votes": "1|1|0", "arousal_votes": "-1|-1|1"}
     votes = {"votes": np.array([2 / 3, 1 / 3], np.float32)}
